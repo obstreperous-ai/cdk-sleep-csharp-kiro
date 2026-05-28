@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Create xUnit test project with CDK Assertions, write TDD-first tests for the CdkBaseStack, add CI workflow, and create architecture documentation for the sleep audio pipeline bootstrap.",
+  "status": "completed",
+  "steps": [
+    "Create a new xUnit test project at src/CdkBase.Tests/CdkBase.Tests.csproj targeting net8.0 with references to: xunit, xunit.runner.visualstudio, Microsoft.NET.Test.Sdk, Amazon.CDK.Assertions, and a project reference to ../CdkBase/CdkBase.csproj",
+    "Add the test project to the solution file src/CdkBase.sln using 'dotnet sln src/CdkBase.sln add src/CdkBase.Tests/CdkBase.Tests.csproj'",
+    "Write a TDD-first test file src/CdkBase.Tests/CdkBaseStackTest.cs that: (a) creates a CDK App + CdkBaseStack, (b) uses Template.FromStack() to get the synthesized template, (c) asserts the stack synthesizes successfully (template is not null), (d) asserts the template resource count is 0 (empty stack baseline), (e) includes a placeholder test for future SQS queue or SNS topic that will be part of the sleep audio pipeline - this test should be marked with [Fact(Skip = \"TDD: implement sleep audio pipeline resources\")] to document the next step",
+    "Run 'dotnet test src/CdkBase.sln' to confirm the passing tests pass and skipped tests are reported",
+    "Create .github/workflows/ci.yml with a GitHub Actions workflow that: uses ubuntu-latest, installs .NET 8, installs Node.js, installs CDK CLI, runs dotnet restore, runs dotnet build, runs dotnet test, runs cdk synth, runs cdk diff (with --no-fail flag since there is no deployed stack). The workflow should trigger on push to main and on pull_request.",
+    "Update README.md to document: project purpose (sleep audio pipeline CDK infrastructure), TDD-first development approach, how to run tests, CI badge placeholder, and architecture overview section describing the planned event-driven pipeline (S3 ingestion -> EventBridge -> Step Functions -> processing lambdas -> DynamoDB metadata store)",
+    "Create docs/ARCHITECTURE.md describing the planned sleep audio pipeline architecture: event-driven design with S3 for audio ingestion, EventBridge for event routing, Step Functions for orchestration, Lambda for processing, and DynamoDB for metadata. Include a section on TDD approach explaining the red-green-refactor cycle with CDK Assertions."
+  ],
+  "acceptance_criteria": [
+    "'dotnet test src/CdkBase.sln' passes with at least 2 passing tests and reports the skipped TDD test",
+    "src/CdkBase.Tests/CdkBase.Tests.csproj exists and references xunit and Amazon.CDK.Assertions",
+    ".github/workflows/ci.yml exists with dotnet restore, dotnet test, cdk synth, and cdk diff steps",
+    "docs/ARCHITECTURE.md exists and describes the sleep audio pipeline architecture",
+    "README.md is updated with project purpose and testing instructions"
+  ],
+  "verification": [
+    "dotnet test src/CdkBase.sln --verbosity normal",
+    "dotnet build src/CdkBase.sln",
+    "cat .github/workflows/ci.yml",
+    "cat docs/ARCHITECTURE.md"
+  ],
+  "blocked_reason": null,
+  "findings": "Amazon.CDK.Assertions is included in Amazon.CDK.Lib for CDK v2 (no separate package). Must unset NODE_OPTIONS before running dotnet test because JSII runtime uses Node.js internally and the sandbox NODE_OPTIONS references a non-existent proxy-bootstrap.js. CI workflow should also account for this. Test project references Amazon.CDK.Lib directly alongside the project reference."
+}

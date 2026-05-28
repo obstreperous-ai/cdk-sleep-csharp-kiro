@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk
+
+      - name: Restore dependencies
+        run: dotnet restore src/CdkBase.sln
+
+      - name: Build
+        run: dotnet build src/CdkBase.sln --no-restore
+
+      - name: Test
+        run: dotnet test src/CdkBase.sln --no-build --verbosity normal
+
+      - name: CDK Synth
+        run: npx cdk synth
+
+      - name: CDK Diff
+        # Advisory only: requires AWS credentials which may not be configured in CI.
+        # --no-fail prevents exit code 1 when there are legitimate diffs.
+        # continue-on-error allows the workflow to pass even if credentials are missing.
+        continue-on-error: true
+        run: npx cdk diff --no-fail
