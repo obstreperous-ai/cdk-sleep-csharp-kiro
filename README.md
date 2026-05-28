@@ -1,8 +1,5 @@
 # Sleep Audio Pipeline - CDK Infrastructure
 
-<!-- CI Badge placeholder -->
-![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml/badge.svg)
-
 AWS CDK infrastructure (C#) for a sleep audio processing pipeline. This project defines cloud resources for ingesting, processing, and storing sleep audio recordings using an event-driven architecture.
 
 ## Project Purpose
