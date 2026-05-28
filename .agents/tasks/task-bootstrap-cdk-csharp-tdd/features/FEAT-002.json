@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Create xUnit test project with CDK Assertions, write TDD-first tests for the CdkBaseStack, add CI workflow, and create architecture documentation for the sleep audio pipeline bootstrap.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create a new xUnit test project at src/CdkBase.Tests/CdkBase.Tests.csproj targeting net8.0 with references to: xunit, xunit.runner.visualstudio, Microsoft.NET.Test.Sdk, Amazon.CDK.Assertions, and a project reference to ../CdkBase/CdkBase.csproj",
     "Add the test project to the solution file src/CdkBase.sln using 'dotnet sln src/CdkBase.sln add src/CdkBase.Tests/CdkBase.Tests.csproj'",
@@ -26,5 +26,5 @@
     "cat docs/ARCHITECTURE.md"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Amazon.CDK.Assertions is included in Amazon.CDK.Lib for CDK v2 (no separate package). Must unset NODE_OPTIONS before running dotnet test because JSII runtime uses Node.js internally and the sandbox NODE_OPTIONS references a non-existent proxy-bootstrap.js. CI workflow should also account for this. Test project references Amazon.CDK.Lib directly alongside the project reference."
 }
