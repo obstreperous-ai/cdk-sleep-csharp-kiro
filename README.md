@@ -95,7 +95,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 
 | Command | Description |
 |---------|-------------|
-| `dotnet build src` | Compile the CDK app |
+| `dotnet build src/CdkBase.sln` | Compile the CDK app |
 | `cdk synth` | Emit the synthesized CloudFormation template |
 | `cdk diff` | Compare deployed stack with current state |
 | `cdk deploy` | Deploy this stack to your AWS account/region |
