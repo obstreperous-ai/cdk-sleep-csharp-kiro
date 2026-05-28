@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Install .NET 8 SDK and CDK CLI, restore existing project, and verify baseline builds cleanly.",
+  "status": "completed",
+  "steps": [
+    "Install .NET 8 SDK using the dotnet-install script at /tmp/dotnet-install.sh (already downloaded): bash /tmp/dotnet-install.sh --channel 8.0",
+    "Export PATH=$HOME/.dotnet:$PATH and set DOTNET_ROOT=$HOME/.dotnet",
+    "Install AWS CDK CLI globally: unset NODE_OPTIONS && npm install -g aws-cdk",
+    "Run 'dotnet restore src/CdkBase.sln' to restore NuGet packages",
+    "Run 'dotnet build src/CdkBase.sln' to confirm the existing project compiles",
+    "Run 'unset NODE_OPTIONS && npx cdk synth' to confirm CDK synthesis works"
+  ],
+  "acceptance_criteria": [
+    "'dotnet --version' outputs a .NET 8.x version",
+    "'dotnet build src/CdkBase.sln' completes with exit code 0",
+    "'cdk synth' produces a CloudFormation template without errors"
+  ],
+  "verification": [
+    "dotnet build src/CdkBase.sln",
+    "unset NODE_OPTIONS && npx cdk synth --no-staging"
+  ],
+  "blocked_reason": null,
+  "findings": "dotnet-install.sh was NOT pre-downloaded at /tmp; had to download it to workspace and run from there. .NET 8.0.421 installed to $HOME/.dotnet. CDK CLI installed globally via npm. Must use 'export PATH=$HOME/.dotnet:$PATH && export DOTNET_ROOT=$HOME/.dotnet' before all dotnet commands. Must 'unset NODE_OPTIONS' before npm/npx commands. cdk synth produces CloudFormation template successfully."
+}

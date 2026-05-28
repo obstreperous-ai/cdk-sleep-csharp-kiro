@@ -1,0 +1,23 @@
+{
+  "project_type": "AWS CDK C# Infrastructure-as-Code project (sleep audio pipeline)",
+  "language": "C#",
+  "build_system": ".NET SDK with dotnet CLI, AWS CDK CLI via npx",
+  "test_framework": "xUnit with Amazon.CDK.Assertions (to be created)",
+  "build_command": "dotnet build src/CdkBase.sln",
+  "test_command": "dotnet test src/CdkBase.sln",
+  "verification_instructions": "1. Run 'dotnet restore src/CdkBase.sln' to restore packages. 2. Run 'dotnet build src/CdkBase.sln' to compile. 3. Run 'dotnet test src/CdkBase.sln' to run tests. 4. Run 'npx cdk synth' to synthesize CloudFormation template.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "1. Install .NET 8 SDK: bash /tmp/dotnet-install.sh --channel 8.0. 2. Export PATH=$HOME/.dotnet:$PATH. 3. Install CDK CLI: npm install -g aws-cdk. 4. Run dotnet restore src/CdkBase.sln.",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode - can access nuget.org and npmjs.com. .NET SDK must be installed first (not pre-installed). Node.js v22 is available. Must unset NODE_OPTIONS before running npm/npx commands.",
+  "contribution_requirements": "TDD-first approach: write failing tests before implementation. Use CDK Assertions for infrastructure testing. Keep architecture docs in sync.",
+  "key_patterns": "CDK app entry point in src/CdkBase/Program.cs. Stack defined in src/CdkBase/CdkBaseStack.cs. Solution file at src/CdkBase.sln. cdk.json uses 'dotnet run --project src/CdkBase/CdkBase.csproj' as app command. Target framework is net8.0. Amazon.CDK.Lib version [2.252.0,3.0.0).",
+  "relevant_files": [
+    "src/CdkBase.sln",
+    "src/CdkBase/CdkBase.csproj",
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase/Program.cs",
+    "cdk.json",
+    "README.md"
+  ],
+  "directory_structure": "Root: cdk.json, README.md, .gitignore. src/: CdkBase.sln solution file. src/CdkBase/: Main CDK app project (Program.cs, CdkBaseStack.cs, CdkBase.csproj). No test project exists yet. No .github/ directory exists yet."
+}

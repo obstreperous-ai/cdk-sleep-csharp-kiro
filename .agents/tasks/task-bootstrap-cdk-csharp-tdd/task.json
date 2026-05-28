@@ -1,0 +1,7 @@
+{
+  "task_id": "task-bootstrap-cdk-csharp-tdd",
+  "task_description": "Bootstrap the cdk-sleep-csharp-kiro repository with xUnit + CDK Assertions test infrastructure, TDD-first tests, CI workflow, and architecture documentation for the sleep audio pipeline.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
