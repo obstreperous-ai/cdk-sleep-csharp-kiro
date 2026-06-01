@@ -1,5 +1,10 @@
 # Event-Driven Sleep Audio Pipeline - Architecture
 
+> **Note:** This document defines the **target architecture** for the Sleep Audio Pipeline.
+> Components described here are implemented incrementally via TDD. The CDK stack may not
+> yet contain all resources shown below. Refer to the test suite for the current state of
+> implemented infrastructure.
+
 ## High-Level Overview
 
 The Sleep Audio Pipeline is a fully serverless, event-driven system built on AWS that ingests raw sleep audio recordings, processes them through text-to-speech synthesis and AI-enhanced audio generation, and delivers production-ready sleep audio content. The pipeline is defined as Infrastructure as Code using AWS CDK with C# (.NET 8), enabling repeatable deployments across multiple environments.
@@ -40,6 +45,7 @@ flowchart TD
     subgraph Observability
         C -->|Execution Logs| N[CloudWatch Logs]
         D -->|Function Logs| N
+        G -->|Function Logs| N
         N -->|Threshold Breach| O[CloudWatch Alarms]
         O -->|Alarm Triggered| K
     end
@@ -262,7 +268,10 @@ Tests use `Amazon.CDK.Assertions` (included in `Amazon.CDK.Lib`) to verify synth
 - `template.ResourceCountIs()` - verify the expected count of a resource type
 - `template.HasOutput()` - verify stack outputs are defined correctly
 
-### Example Test Pattern
+### Example Test Pattern (Planned)
+
+The following is an example of a test that will pass once the input S3 bucket is implemented
+in the CDK stack. It illustrates the pattern used to verify resource properties via CDK Assertions:
 
 ```csharp
 [Fact]

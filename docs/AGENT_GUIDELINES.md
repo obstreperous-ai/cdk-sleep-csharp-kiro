@@ -63,7 +63,7 @@ template.HasResourceProperties("AWS::S3::Bucket", new Dictionary<string, object>
 The project supports multiple deployment environments via CDK context:
 
 - **dev** - Development environment with relaxed constraints for rapid iteration
-- **stage** - Staging environment that mirrors production configuration
+- **staging** - Staging environment that mirrors production configuration
 - **prod** - Production environment with full security, monitoring, and scaling
 
 Environment-specific configuration is passed through CDK context values defined in `cdk.json` and can be overridden at synthesis time:
