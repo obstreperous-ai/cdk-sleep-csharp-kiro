@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "docs",
   "description": "Create AGENT_GUIDELINES.md that references the architecture documentation as the source of truth for all future development issues",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create a new file docs/AGENT_GUIDELINES.md (placing it in docs/ alongside ARCHITECTURE.md for consistency)",
     "Include the following sections: (1) Purpose - this file guides contributors and agents on how development should proceed, (2) Architecture Source of Truth - reference docs/ARCHITECTURE.md as the authoritative design document that all implementation issues must align with, (3) Development Workflow - reference TDD-first approach from README, red-green-refactor cycle, CDK Assertions testing pattern, (4) Issue Implementation Rules - every implementation issue must trace back to a component in ARCHITECTURE.md, code changes must maintain consistency with the documented architecture, any architectural changes must update ARCHITECTURE.md first, (5) File Organization - describe where different types of content belong (CDK stacks in src/CdkBase/, tests in src/CdkBase.Tests/, docs in docs/), (6) Environment Configuration - reference multi-environment support via CDK context (dev/stage/prod)",
