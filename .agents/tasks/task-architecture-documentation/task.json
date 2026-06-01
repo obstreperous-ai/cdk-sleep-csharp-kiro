@@ -1,0 +1,7 @@
+{
+  "task_id": "task-architecture-documentation",
+  "task_description": "Create comprehensive architecture documentation and Mermaid diagram for the Event-Driven Sleep Audio Pipeline, and create AGENT_GUIDELINES.md referencing it as the source of truth",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
