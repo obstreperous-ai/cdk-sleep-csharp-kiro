@@ -59,6 +59,29 @@ flowchart TD
     end
 ```
 
+## Current Implementation Status
+
+The following components from the target architecture have been implemented in the CDK stack:
+
+- **Input S3 Bucket (SleepAudioInputBucket)**: Configured with KMS-managed server-side encryption (SSE-KMS), versioning enabled, EventBridge notifications enabled for object-created events, and all public access blocked (BlockPublicAccess.BLOCK_ALL). RemovalPolicy is set to DESTROY for non-production use.
+
+- **Output S3 Bucket (SleepAudioOutputBucket)**: Configured with KMS-managed server-side encryption (SSE-KMS), versioning enabled, and all public access blocked. RemovalPolicy is set to DESTROY for non-production use.
+
+- **EventBridge Rule (AudioUploadRule)**: Triggers on "Object Created" events from the input bucket (source: `aws.s3`, detail-type: `Object Created`, filtered by input bucket name). Currently targets a placeholder SQS queue pending Step Functions implementation.
+
+- **Stub SQS Queue (StubProcessingQueue)**: Temporary target for the EventBridge rule. Will be replaced by a Step Functions state machine in a future iteration.
+
+```mermaid
+flowchart LR
+    A[Input S3 Bucket] -->|Object Created Event| B[EventBridge Rule]
+    B -->|Targets| C[Stub SQS Queue]
+    D[Output S3 Bucket]
+```
+
+> **Next Steps**: Replace the stub SQS queue target with an AWS Step Functions state machine
+> that orchestrates the full audio processing pipeline. Implement Lambda functions for
+> metadata extraction/validation and output assembly.
+
 ## Data Flow
 
 The pipeline processes sleep audio through the following steps:
