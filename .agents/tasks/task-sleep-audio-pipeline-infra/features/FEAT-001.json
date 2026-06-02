@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Install .NET 8 SDK and Node.js CDK CLI, restore NuGet packages, and verify baseline build and tests pass.",
+  "status": "completed",
+  "steps": [
+    "Install .NET 8 SDK using the dotnet-install.sh script from Microsoft (curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0). Add to PATH.",
+    "Install AWS CDK CLI globally via npm: npm install -g aws-cdk",
+    "Run: dotnet restore src/CdkBase.sln",
+    "Run: dotnet build src/CdkBase.sln",
+    "Run: dotnet test src/CdkBase.sln --verbosity normal - confirm all 3 existing tests pass",
+    "Run: npx cdk synth - confirm it synthesizes successfully"
+  ],
+  "acceptance_criteria": [
+    "dotnet --version reports 8.x",
+    "dotnet build src/CdkBase.sln succeeds with exit code 0",
+    "dotnet test src/CdkBase.sln reports all 3 tests passing (2 pass, 1 skipped)",
+    "npx cdk synth produces CloudFormation output without errors"
+  ],
+  "verification": [
+    "dotnet build src/CdkBase.sln",
+    "dotnet test src/CdkBase.sln --verbosity normal",
+    "npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "dotnet 8.0.421 installed at $HOME/.dotnet. NODE_OPTIONS env var must be set to empty string (NODE_OPTIONS='') before running dotnet test or cdk synth because the sandbox sets NODE_OPTIONS=--require /opt/amazon/kiro-agent/proxy-bootstrap.js which breaks JSII runtime. All commands require: export DOTNET_ROOT=$HOME/.dotnet && export PATH=$PATH:$HOME/.dotnet:$HOME/.dotnet/tools && export NODE_OPTIONS=''. Tests: 2 passed, 1 skipped (Stack_HasS3BucketForAudioIngestion is a TDD placeholder). cdk synth produces valid CloudFormation output."
+}
