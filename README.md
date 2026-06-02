@@ -100,3 +100,9 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 | `cdk diff` | Compare deployed stack with current state |
 | `cdk deploy` | Deploy this stack to your AWS account/region |
 | `dotnet test src/CdkBase.sln` | Run infrastructure tests |
+
+## Contributing
+
+For development guidelines, coding standards, and issue implementation rules, see [docs/AGENT_GUIDELINES.md](docs/AGENT_GUIDELINES.md).
+
+For architecture decisions and system design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

@@ -1,0 +1,23 @@
+{
+  "project_type": "C# CDK infrastructure app (.NET 8) for an event-driven sleep audio processing pipeline",
+  "language": "C#",
+  "build_system": "dotnet CLI with CDK CLI (cdk synth). Solution file at src/CdkBase.sln",
+  "test_framework": "xUnit with Amazon.CDK.Assertions for CloudFormation template verification",
+  "build_command": "dotnet build src/CdkBase.sln",
+  "test_command": "dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "This is a documentation-only task. Verify that ARCHITECTURE.md and AGENT_GUIDELINES.md have correct markdown syntax and that the Mermaid diagram uses GitHub-compatible syntax. No code compilation needed.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "No setup needed - this is a documentation-only task.",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode. .NET SDK is not pre-installed in the sandbox, but that is irrelevant since this task only creates/updates markdown files.",
+  "contribution_requirements": "TDD-first development approach per README. Architecture docs in docs/ directory. CI runs dotnet build, dotnet test, and cdk synth.",
+  "key_patterns": "Existing ARCHITECTURE.md has a skeleton structure with Overview, Event-Driven Design, Components, Data Flow, TDD Approach, and Future Roadmap sections. The project uses CDK context flags for best practices. The CI pipeline is at .github/workflows/ci.yml.",
+  "relevant_files": [
+    "docs/ARCHITECTURE.md",
+    "README.md",
+    "cdk.json",
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase/Program.cs",
+    ".github/workflows/ci.yml"
+  ],
+  "directory_structure": "Root: README.md, cdk.json, LICENSE. src/CdkBase/ has the CDK app (Program.cs, CdkBaseStack.cs). src/CdkBase.Tests/ has xUnit tests. docs/ has ARCHITECTURE.md. .github/workflows/ has CI config."
+}
