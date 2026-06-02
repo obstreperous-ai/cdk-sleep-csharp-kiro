@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
 using Amazon.CDK;
 using Amazon.CDK.Assertions;
 using Xunit;
@@ -45,26 +47,21 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify a bucket exists with SSE-KMS encryption
-            template.HasResourceProperties("AWS::S3::Bucket", new Dictionary<string, object>
-            {
-                { "BucketEncryption", new Dictionary<string, object>
-                    {
-                        { "ServerSideEncryptionConfiguration", new object[]
-                            {
-                                new Dictionary<string, object>
-                                {
-                                    { "ServerSideEncryptionByDefault", new Dictionary<string, object>
-                                        {
-                                            { "SSEAlgorithm", "aws:kms" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+            // Assert - find buckets by logical ID to distinguish input from output
+            var buckets = template.FindResources("AWS::S3::Bucket");
+            var inputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioInputBucket"));
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(inputBucketEntry.Value))
+                .GetProperty("Properties");
+
+            var sseConfig = properties
+                .GetProperty("BucketEncryption")
+                .GetProperty("ServerSideEncryptionConfiguration");
+            var algorithm = sseConfig[0]
+                .GetProperty("ServerSideEncryptionByDefault")
+                .GetProperty("SSEAlgorithm")
+                .GetString();
+
+            Assert.Equal("aws:kms", algorithm);
         }
 
         [Fact]
@@ -77,15 +74,18 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify a bucket exists with versioning enabled
-            template.HasResourceProperties("AWS::S3::Bucket", new Dictionary<string, object>
-            {
-                { "VersioningConfiguration", new Dictionary<string, object>
-                    {
-                        { "Status", "Enabled" }
-                    }
-                }
-            });
+            // Assert - find input bucket by logical ID
+            var buckets = template.FindResources("AWS::S3::Bucket");
+            var inputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioInputBucket"));
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(inputBucketEntry.Value))
+                .GetProperty("Properties");
+
+            var status = properties
+                .GetProperty("VersioningConfiguration")
+                .GetProperty("Status")
+                .GetString();
+
+            Assert.Equal("Enabled", status);
         }
 
         [Fact]
@@ -98,31 +98,25 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify a bucket with encryption and versioning exists
-            template.HasResourceProperties("AWS::S3::Bucket", new Dictionary<string, object>
-            {
-                { "BucketEncryption", new Dictionary<string, object>
-                    {
-                        { "ServerSideEncryptionConfiguration", new object[]
-                            {
-                                new Dictionary<string, object>
-                                {
-                                    { "ServerSideEncryptionByDefault", new Dictionary<string, object>
-                                        {
-                                            { "SSEAlgorithm", "aws:kms" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                { "VersioningConfiguration", new Dictionary<string, object>
-                    {
-                        { "Status", "Enabled" }
-                    }
-                }
-            });
+            // Assert - find output bucket by logical ID
+            var buckets = template.FindResources("AWS::S3::Bucket");
+            var outputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioOutputBucket"));
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(outputBucketEntry.Value))
+                .GetProperty("Properties");
+
+            var algorithm = properties
+                .GetProperty("BucketEncryption")
+                .GetProperty("ServerSideEncryptionConfiguration")[0]
+                .GetProperty("ServerSideEncryptionByDefault")
+                .GetProperty("SSEAlgorithm")
+                .GetString();
+            Assert.Equal("aws:kms", algorithm);
+
+            var status = properties
+                .GetProperty("VersioningConfiguration")
+                .GetProperty("Status")
+                .GetString();
+            Assert.Equal("Enabled", status);
         }
 
         [Fact]
@@ -135,18 +129,26 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify a bucket exists with all public access blocked
-            template.HasResourceProperties("AWS::S3::Bucket", new Dictionary<string, object>
-            {
-                { "PublicAccessBlockConfiguration", new Dictionary<string, object>
-                    {
-                        { "BlockPublicAcls", true },
-                        { "BlockPublicPolicy", true },
-                        { "IgnorePublicAcls", true },
-                        { "RestrictPublicBuckets", true }
-                    }
-                }
-            });
+            // Assert - verify both buckets block public access by logical ID
+            var buckets = template.FindResources("AWS::S3::Bucket");
+
+            var inputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioInputBucket"));
+            var inputProps = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(inputBucketEntry.Value))
+                .GetProperty("Properties")
+                .GetProperty("PublicAccessBlockConfiguration");
+            Assert.True(inputProps.GetProperty("BlockPublicAcls").GetBoolean());
+            Assert.True(inputProps.GetProperty("BlockPublicPolicy").GetBoolean());
+            Assert.True(inputProps.GetProperty("IgnorePublicAcls").GetBoolean());
+            Assert.True(inputProps.GetProperty("RestrictPublicBuckets").GetBoolean());
+
+            var outputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioOutputBucket"));
+            var outputProps = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(outputBucketEntry.Value))
+                .GetProperty("Properties")
+                .GetProperty("PublicAccessBlockConfiguration");
+            Assert.True(outputProps.GetProperty("BlockPublicAcls").GetBoolean());
+            Assert.True(outputProps.GetProperty("BlockPublicPolicy").GetBoolean());
+            Assert.True(outputProps.GetProperty("IgnorePublicAcls").GetBoolean());
+            Assert.True(outputProps.GetProperty("RestrictPublicBuckets").GetBoolean());
         }
 
         [Fact]
@@ -172,6 +174,37 @@ namespace CdkBase.Tests
         }
 
         [Fact]
+        public void Stack_EventBridgeRuleFiltersByInputBucketName()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the EventBridge rule detail filter references the input bucket
+            var rules = template.FindResources("AWS::Events::Rule");
+            Assert.Single(rules);
+
+            var ruleEntry = rules.First();
+            var ruleJson = JsonSerializer.Serialize(ruleEntry.Value);
+            var ruleElement = JsonSerializer.Deserialize<JsonElement>(ruleJson);
+            var eventPattern = ruleElement.GetProperty("Properties").GetProperty("EventPattern");
+            var detail = eventPattern.GetProperty("detail");
+            var bucketDetail = detail.GetProperty("bucket");
+            var nameArray = bucketDetail.GetProperty("name");
+
+            // The bucket name is a Ref to the input bucket logical ID
+            Assert.Equal(JsonValueKind.Array, nameArray.ValueKind);
+            Assert.Equal(1, nameArray.GetArrayLength());
+            var nameEntry = nameArray[0];
+            // CDK synthesizes as { "Ref": "SleepAudioInputBucket..." }
+            Assert.True(nameEntry.TryGetProperty("Ref", out var refValue));
+            Assert.Contains("SleepAudioInputBucket", refValue.GetString());
+        }
+
+        [Fact]
         public void Stack_EventBridgeRuleHasTarget()
         {
             // Arrange
@@ -186,6 +219,67 @@ namespace CdkBase.Tests
             {
                 { "Targets", Match.AnyValue() }
             });
+        }
+
+        [Fact]
+        public void Stack_StubQueueHasKmsEncryption()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the stub processing queue has KMS encryption
+            var queues = template.FindResources("AWS::SQS::Queue");
+            var stubQueue = queues.First(q => q.Key.Contains("StubProcessingQueue"));
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(stubQueue.Value))
+                .GetProperty("Properties");
+
+            Assert.True(properties.TryGetProperty("KmsMasterKeyId", out var kmsKey));
+            Assert.Equal("alias/aws/sqs", kmsKey.GetString());
+        }
+
+        [Fact]
+        public void Stack_StubQueueHasDeadLetterQueue()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the stub processing queue has a dead-letter queue configured
+            var queues = template.FindResources("AWS::SQS::Queue");
+            var stubQueue = queues.First(q => q.Key.Contains("StubProcessingQueue"));
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(stubQueue.Value))
+                .GetProperty("Properties");
+
+            Assert.True(properties.TryGetProperty("RedrivePolicy", out var redrivePolicy));
+            Assert.True(redrivePolicy.TryGetProperty("maxReceiveCount", out var maxReceiveCount));
+            Assert.Equal(3, maxReceiveCount.GetInt32());
+        }
+
+        [Fact]
+        public void Stack_DeadLetterQueueHasKmsEncryption()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the DLQ also has KMS encryption
+            var queues = template.FindResources("AWS::SQS::Queue");
+            var dlq = queues.First(q => q.Key.Contains("StubProcessingDLQ"));
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(dlq.Value))
+                .GetProperty("Properties");
+
+            Assert.True(properties.TryGetProperty("KmsMasterKeyId", out var kmsKey));
+            Assert.Equal("alias/aws/sqs", kmsKey.GetString());
         }
     }
 }

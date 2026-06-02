@@ -49,9 +49,22 @@ namespace CdkBase
                 }
             });
 
+            // Dead-letter queue for unprocessable messages from the stub target
+            var deadLetterQueue = new Queue(this, "StubProcessingDLQ", new QueueProps
+            {
+                Encryption = QueueEncryption.KMS_MANAGED,
+                RemovalPolicy = RemovalPolicy.DESTROY
+            });
+
             // Stub SQS queue as placeholder target pending Step Functions implementation
             var stubQueue = new Queue(this, "StubProcessingQueue", new QueueProps
             {
+                Encryption = QueueEncryption.KMS_MANAGED,
+                DeadLetterQueue = new DeadLetterQueue
+                {
+                    Queue = deadLetterQueue,
+                    MaxReceiveCount = 3
+                },
                 RemovalPolicy = RemovalPolicy.DESTROY
             });
 
