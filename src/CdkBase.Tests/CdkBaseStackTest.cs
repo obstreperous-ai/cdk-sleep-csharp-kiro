@@ -222,7 +222,7 @@ namespace CdkBase.Tests
         }
 
         [Fact]
-        public void Stack_StubQueueHasKmsEncryption()
+        public void Stack_HasStepFunctionsStateMachine()
         {
             // Arrange
             var app = new App();
@@ -231,18 +231,12 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify the stub processing queue has KMS encryption
-            var queues = template.FindResources("AWS::SQS::Queue");
-            var stubQueue = queues.First(q => q.Key.Contains("StubProcessingQueue"));
-            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(stubQueue.Value))
-                .GetProperty("Properties");
-
-            Assert.True(properties.TryGetProperty("KmsMasterKeyId", out var kmsKey));
-            Assert.Equal("alias/aws/sqs", kmsKey.GetString());
+            // Assert - verify exactly one state machine exists
+            template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
         }
 
         [Fact]
-        public void Stack_StubQueueHasDeadLetterQueue()
+        public void Stack_StateMachineHasDefinitionWithPollyTask()
         {
             // Arrange
             var app = new App();
@@ -251,19 +245,20 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify the stub processing queue has a dead-letter queue configured
-            var queues = template.FindResources("AWS::SQS::Queue");
-            var stubQueue = queues.First(q => q.Key.Contains("StubProcessingQueue"));
-            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(stubQueue.Value))
-                .GetProperty("Properties");
+            // Assert - find the state machine and verify its definition contains Polly task
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
 
-            Assert.True(properties.TryGetProperty("RedrivePolicy", out var redrivePolicy));
-            Assert.True(redrivePolicy.TryGetProperty("maxReceiveCount", out var maxReceiveCount));
-            Assert.Equal(3, maxReceiveCount.GetInt32());
+            var stateMachineEntry = stateMachines.First();
+            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
+
+            // Verify the definition contains the SynthesizeSpeech state and Polly resource
+            Assert.Contains("SynthesizeSpeech", serialized);
+            Assert.Contains("arn:aws:states:::aws-sdk:polly:synthesizeSpeech", serialized);
         }
 
         [Fact]
-        public void Stack_DeadLetterQueueHasKmsEncryption()
+        public void Stack_StateMachineHasLoggingEnabled()
         {
             // Arrange
             var app = new App();
@@ -272,14 +267,77 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify the DLQ also has KMS encryption
-            var queues = template.FindResources("AWS::SQS::Queue");
-            var dlq = queues.First(q => q.Key.Contains("StubProcessingDLQ"));
-            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(dlq.Value))
+            // Assert - verify state machine has logging configuration
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var stateMachineEntry = stateMachines.First();
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(stateMachineEntry.Value))
                 .GetProperty("Properties");
 
-            Assert.True(properties.TryGetProperty("KmsMasterKeyId", out var kmsKey));
-            Assert.Equal("alias/aws/sqs", kmsKey.GetString());
+            var loggingConfig = properties.GetProperty("LoggingConfiguration");
+            var level = loggingConfig.GetProperty("Level").GetString();
+            var includeExecutionData = loggingConfig.GetProperty("IncludeExecutionData").GetBoolean();
+
+            Assert.Equal("ALL", level);
+            Assert.True(includeExecutionData);
+        }
+
+        [Fact]
+        public void Stack_EventBridgeRuleTargetsStateMachine()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify EventBridge rule targets the state machine (not SQS)
+            var rules = template.FindResources("AWS::Events::Rule");
+            Assert.Single(rules);
+
+            var ruleEntry = rules.First();
+            var ruleJson = JsonSerializer.Serialize(ruleEntry.Value);
+
+            // The target Arn should reference the state machine (via Ref or GetAtt)
+            Assert.Contains("SleepAudioPipelineStateMachine", ruleJson);
+            // Ensure no SQS queue reference
+            Assert.DoesNotContain("StubProcessingQueue", ruleJson);
+        }
+
+        [Fact]
+        public void Stack_StateMachineRoleHasPollyPermissions()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify IAM policies include polly:SynthesizeSpeech
+            var policies = template.FindResources("AWS::IAM::Policy");
+            var policiesJson = JsonSerializer.Serialize(policies);
+
+            Assert.Contains("polly:SynthesizeSpeech", policiesJson);
+        }
+
+        [Fact]
+        public void Stack_StateMachineRoleHasCloudWatchLogsPermissions()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify IAM policies include CloudWatch Logs permissions
+            var policies = template.FindResources("AWS::IAM::Policy");
+            var policiesJson = JsonSerializer.Serialize(policies);
+
+            Assert.Contains("logs:", policiesJson);
         }
     }
 }
