@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Implement the Sleep Audio Pipeline foundational infrastructure using strict TDD: Input S3 bucket (KMS-encrypted, versioned, EventBridge notifications), Output S3 bucket (encrypted, versioned), and EventBridge rule that triggers on Object Created events from the input bucket with a stub target. Update tests first (red), then implement (green), then update ARCHITECTURE.md.",
+  "status": "completed",
+  "steps": [
+    "STEP 1 - Write failing tests in src/CdkBase.Tests/CdkBaseStackTest.cs. Replace the existing skipped test and 'Stack_HasNoResources' test with real tests. Write tests that verify: (a) Input S3 Bucket exists with SSE-KMS encryption and versioning enabled, (b) Output S3 Bucket exists with encryption and versioning enabled, (c) An EventBridge Rule exists that matches S3 Object Created events from the input bucket, (d) The EventBridge rule has at least one target, (e) Both buckets block public access. Use the CDK Assertions pattern: Template.FromStack(stack) then template.HasResourceProperties(). Keep the Stack_SynthesizesSuccessfully test. Run tests to confirm they fail (red phase).",
+    "STEP 2 - Implement the minimal CDK code in src/CdkBase/CdkBaseStack.cs to make all tests pass: (a) Create an S3 Bucket for input with BucketEncryption.KMS_MANAGED or a dedicated KMS key, Versioned=true, BlockPublicAccess.BLOCK_ALL, EventBridgeEnabled=true. (b) Create an S3 Bucket for output with encryption, Versioned=true, BlockPublicAccess.BLOCK_ALL. (c) Create an EventBridge Rule using events.Rule that matches S3 Object Created events from the input bucket (source: aws.s3, detail-type: Object Created, detail bucket name matching the input bucket). (d) Add a stub target for the rule - use a simple SQS queue or a CloudWatch LogGroup as placeholder target (just needs to be something valid so the rule has a target). (e) Apply RemovalPolicy.DESTROY to non-production resources for easy cleanup. Run tests to confirm they pass (green phase).",
+    "STEP 3 - Run full verification: dotnet build src/CdkBase.sln, dotnet test src/CdkBase.sln --verbosity normal, npx cdk synth. All must succeed.",
+    "STEP 4 - Update docs/ARCHITECTURE.md: Add a new section '## Implemented Components' (or similar) after the Architecture Diagram section that documents which components from the target architecture are now actually implemented. Mention the two S3 buckets and the EventBridge rule. Keep the existing target architecture diagram intact. Note that the EventBridge rule currently uses a placeholder target pending Step Functions implementation."
+  ],
+  "acceptance_criteria": [
+    "dotnet test src/CdkBase.sln passes all tests (no failures, no skipped tests related to this feature)",
+    "Tests verify: input bucket has KMS encryption, input bucket has versioning, output bucket has encryption, output bucket has versioning, both buckets block public access, EventBridge rule exists with correct event pattern, EventBridge rule has a target",
+    "npx cdk synth produces valid CloudFormation template containing AWS::S3::Bucket, AWS::Events::Rule resources",
+    "docs/ARCHITECTURE.md is updated to reflect implemented components"
+  ],
+  "verification": [
+    "dotnet build src/CdkBase.sln",
+    "dotnet test src/CdkBase.sln --verbosity normal",
+    "npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "All 12 tests pass (11 new + 1 existing Stack_SynthesizesSuccessfully). cdk synth produces valid CloudFormation with AWS::S3::Bucket (x2), AWS::Events::Rule, AWS::SQS::Queue (stub + DLQ), plus supporting resources (IAM roles/policies for EventBridge notifications). The CDK KMS_MANAGED encryption maps to SSEAlgorithm 'aws:kms' in CloudFormation. EventBridgeEnabled=true on the input bucket creates a Custom::S3BucketNotifications resource. No issues encountered."
+}

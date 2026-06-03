@@ -1,0 +1,24 @@
+{
+  "project_type": "C# .NET 8 AWS CDK infrastructure project",
+  "language": "C#",
+  "build_system": "dotnet CLI + AWS CDK CLI (npx cdk). Solution file at src/CdkBase.sln",
+  "test_framework": "xUnit with Amazon.CDK.Assertions (from Amazon.CDK.Lib package)",
+  "build_command": "dotnet build src/CdkBase.sln",
+  "test_command": "dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. dotnet restore src/CdkBase.sln 2. dotnet build src/CdkBase.sln 3. dotnet test src/CdkBase.sln --verbosity normal 4. npx cdk synth",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "Install .NET 8 SDK via dotnet-install.sh script. Install Node.js (already available via nvm). Install CDK CLI via npm install -g aws-cdk.",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode - can access package registries. .NET SDK is NOT pre-installed - must install via dotnet-install.sh. Node.js 22 is available via nvm.",
+  "contribution_requirements": "TDD-first approach: write failing tests first using CDK Assertions, then implement minimal code. All changes must trace to ARCHITECTURE.md. Conventional commits required.",
+  "key_patterns": "Stack defined in src/CdkBase/CdkBaseStack.cs. Tests in src/CdkBase.Tests/CdkBaseStackTest.cs using xUnit [Fact] and Template.FromStack(). InternalsVisibleTo allows test project to access internal stack constructors. GlobalSuppressions.cs suppresses RECS0026 for CDK construct patterns.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase/CdkBase.csproj",
+    "src/CdkBase.Tests/CdkBase.Tests.csproj",
+    "docs/ARCHITECTURE.md",
+    "cdk.json",
+    ".github/workflows/ci.yml"
+  ],
+  "directory_structure": "Root: cdk.json, README.md. src/CdkBase/ contains CDK app (Program.cs, CdkBaseStack.cs). src/CdkBase.Tests/ contains xUnit tests. docs/ contains ARCHITECTURE.md and AGENT_GUIDELINES.md. .github/workflows/ci.yml defines CI pipeline."
+}
