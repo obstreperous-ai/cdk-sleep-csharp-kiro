@@ -21,5 +21,5 @@
     "npx cdk synth"
   ],
   "blocked_reason": null,
-  "findings": "All 8 tests pass (7 new + 1 existing Stack_SynthesizesSuccessfully). cdk synth produces valid CloudFormation with AWS::S3::Bucket (x2), AWS::Events::Rule, AWS::SQS::Queue, plus supporting resources (IAM roles/policies for EventBridge notifications). The CDK KMS_MANAGED encryption maps to SSEAlgorithm 'aws:kms' in CloudFormation. EventBridgeEnabled=true on the input bucket creates a Custom::S3BucketNotifications resource. No issues encountered."
+  "findings": "All 12 tests pass (11 new + 1 existing Stack_SynthesizesSuccessfully). cdk synth produces valid CloudFormation with AWS::S3::Bucket (x2), AWS::Events::Rule, AWS::SQS::Queue (stub + DLQ), plus supporting resources (IAM roles/policies for EventBridge notifications). The CDK KMS_MANAGED encryption maps to SSEAlgorithm 'aws:kms' in CloudFormation. EventBridgeEnabled=true on the input bucket creates a Custom::S3BucketNotifications resource. No issues encountered."
 }
