@@ -337,7 +337,7 @@ namespace CdkBase.Tests
             var policies = template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
 
-            Assert.Contains("logs:", policiesJson);
+            Assert.Contains("logs:CreateLogDelivery", policiesJson);
         }
     }
 }
