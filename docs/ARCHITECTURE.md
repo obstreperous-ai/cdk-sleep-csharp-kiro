@@ -63,7 +63,7 @@ flowchart TD
 
 The following components from the target architecture have been implemented in the CDK stack:
 
-- **Input S3 Bucket (SleepAudioInputBucket)**: Configured with KMS-managed server-side encryption (SSE-KMS), versioning enabled, EventBridge notifications enabled for object-created events, and all public access blocked (BlockPublicAccess.BLOCK_ALL). RemovalPolicy is set to DESTROY for non-production use.
+- **Input S3 Bucket (SleepAudioInputBucket)**: Configured with KMS-managed server-side encryption (SSE-KMS), versioning enabled, EventBridge integration enabled (events forwarded to EventBridge; the rule filters for object-created events), and all public access blocked (BlockPublicAccess.BLOCK_ALL). RemovalPolicy is set to DESTROY for non-production use.
 
 - **Output S3 Bucket (SleepAudioOutputBucket)**: Configured with KMS-managed server-side encryption (SSE-KMS), versioning enabled, and all public access blocked. RemovalPolicy is set to DESTROY for non-production use.
 
