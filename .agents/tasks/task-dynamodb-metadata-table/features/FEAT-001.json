@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Add DynamoDB metadata table and extend Step Functions state machine with DynamoDB input/output handling, following strict TDD (write failing tests first, then implement). Includes updating ARCHITECTURE.md.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Write failing tests in src/CdkBase.Tests/CdkBaseStackTest.cs. Add the following test methods: (a) Stack_HasDynamoDbMetadataTable - verify AWS::DynamoDB::Table resource exists with count 1. (b) Stack_DynamoDbTableHasCorrectKeySchema - verify partition key 'audioId' of type S. (c) Stack_DynamoDbTableHasOnDemandBilling - verify BillingMode is PAY_PER_REQUEST. (d) Stack_DynamoDbTableHasEncryption - verify SSESpecification Enabled is true. (e) Stack_DynamoDbTableHasPointInTimeRecovery - verify PointInTimeRecoverySpecification PointInTimeRecoveryEnabled is true. (f) Stack_StateMachineDefinitionContainsDynamoDbPutItem - verify the state machine definition JSON contains 'arn:aws:states:::dynamodb:putItem' resource. (g) Stack_StateMachineDefinitionContainsDynamoDbUpdateItem - verify the state machine definition JSON contains 'arn:aws:states:::dynamodb:updateItem' resource. (h) Stack_StateMachineRoleHasDynamoDbPermissions - verify IAM policies contain 'dynamodb:PutItem' and 'dynamodb:UpdateItem' actions.",
     "Step 2 - Run tests to confirm they fail (Red phase). Use: export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
@@ -27,5 +27,5 @@
     "export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && npx cdk synth"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "CDK L2 DynamoPutItem/DynamoUpdateItem constructs use Fn::Join in synthesized templates, splitting ARNs across boundaries. Tests must assert on the suffix ':states:::dynamodb:putItem' rather than the full ARN. PointInTimeRecovery property is deprecated in favor of PointInTimeRecoverySpecification with PointInTimeRecoveryEnabled. The CustomState AddCatch method works for error handling on the pollyTask CustomState. GrantWriteData grants BatchWriteItem, DeleteItem, DescribeTable, PutItem, and UpdateItem permissions."
 }
