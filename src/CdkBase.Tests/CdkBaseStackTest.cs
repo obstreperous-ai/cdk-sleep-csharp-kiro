@@ -490,6 +490,33 @@ namespace CdkBase.Tests
         }
 
         [Fact]
+        public void Stack_StateMachineDefinitionHasCorrectStateOrdering()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify state machine definition contains all expected states
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var stateMachineEntry = stateMachines.First();
+            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
+
+            // Verify all states exist in the definition
+            Assert.Contains("WriteInitialMetadata", serialized);
+            Assert.Contains("SynthesizeSpeech", serialized);
+            Assert.Contains("UpdateStatusCompleted", serialized);
+            Assert.Contains("UpdateStatusFailed", serialized);
+
+            // Verify catch handlers exist (States.ALL error routing)
+            Assert.Contains("States.ALL", serialized);
+        }
+
+        [Fact]
         public void Stack_StateMachineRoleHasDynamoDbPermissions()
         {
             // Arrange

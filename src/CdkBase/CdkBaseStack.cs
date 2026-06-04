@@ -164,6 +164,12 @@ namespace CdkBase
                 ResultPath = "$.error"
             });
 
+            updateStatusCompleted.AddCatch(updateStatusFailed, new CatchProps
+            {
+                Errors = new[] { "States.ALL" },
+                ResultPath = "$.error"
+            });
+
             // Step Functions State Machine for sleep audio processing pipeline
             var stateMachine = new StateMachine(this, "SleepAudioPipelineStateMachine", new StateMachineProps
             {
