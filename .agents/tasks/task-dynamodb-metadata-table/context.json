@@ -1,0 +1,23 @@
+{
+  "project_type": "AWS CDK Infrastructure as Code (C# .NET 8)",
+  "language": "C#",
+  "build_system": "dotnet CLI with .NET 8 SDK. Must unset NODE_OPTIONS env var before running tests/synth because the sandbox sets it to a nonexistent preload script.",
+  "test_framework": "xUnit with CDK Assertions (Amazon.CDK.Assertions namespace from Amazon.CDK.Lib). Tests in src/CdkBase.Tests/CdkBaseStackTest.cs.",
+  "build_command": "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet build src/CdkBase.sln",
+  "test_command": "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. Run dotnet build src/CdkBase.sln (must pass with 0 errors). 2. Run dotnet test src/CdkBase.sln --verbosity normal (all tests must pass). 3. Run npx cdk synth (must produce valid CloudFormation). Must always: export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS before running commands.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "1. export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS. 2. dotnet restore src/CdkBase.sln. 3. dotnet build src/CdkBase.sln.",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode - allowlisted domains for NuGet/npm. .NET 8 SDK installed at /root/.dotnet. Must unset NODE_OPTIONS before any dotnet test or npx cdk commands. No Docker daemon available for docker build.",
+  "contribution_requirements": "Strict TDD: write failing tests first, then implement minimal code to pass. Follow CDK Assertions patterns from existing tests. Update ARCHITECTURE.md after changes. Use L2 constructs. Apply least-privilege IAM. Conventional commit messages.",
+  "key_patterns": "Stack defined in CdkBaseStack.cs constructor. Tests use Template.FromStack() + FindResources/HasResourceProperties pattern with System.Text.Json for deep inspection. LogGroupProps must be fully qualified (Amazon.CDK.AWS.Logs.LogGroupProps) to avoid ambiguity with Amazon.CDK.AWS.Events.Targets.LogGroupProps. InternalsVisibleTo enables test access.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase/CdkBase.csproj",
+    "src/CdkBase.Tests/CdkBase.Tests.csproj",
+    "docs/ARCHITECTURE.md",
+    "src/CdkBase/GlobalSuppressions.cs"
+  ],
+  "directory_structure": "src/CdkBase/ - main CDK app (Program.cs entry point, CdkBaseStack.cs stack definition). src/CdkBase.Tests/ - xUnit test project. docs/ - ARCHITECTURE.md and AGENT_GUIDELINES.md. .github/workflows/ci.yml - CI pipeline."
+}
