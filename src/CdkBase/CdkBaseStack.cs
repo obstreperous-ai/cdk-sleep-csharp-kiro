@@ -2,8 +2,10 @@ using System.Collections.Generic;
 using Amazon.CDK;
 using Amazon.CDK.AWS.Events;
 using Amazon.CDK.AWS.Events.Targets;
+using Amazon.CDK.AWS.IAM;
+using Amazon.CDK.AWS.Logs;
 using Amazon.CDK.AWS.S3;
-using Amazon.CDK.AWS.SQS;
+using Amazon.CDK.AWS.StepFunctions;
 using Constructs;
 
 namespace CdkBase
@@ -49,26 +51,53 @@ namespace CdkBase
                 }
             });
 
-            // Dead-letter queue for unprocessable messages from the stub target
-            var deadLetterQueue = new Queue(this, "StubProcessingDLQ", new QueueProps
+            // CloudWatch Log Group for state machine execution logs
+            var logGroup = new LogGroup(this, "StateMachineLogGroup", new LogGroupProps
             {
-                Encryption = QueueEncryption.KMS_MANAGED,
+                Retention = RetentionDays.TWO_WEEKS,
                 RemovalPolicy = RemovalPolicy.DESTROY
             });
 
-            // Stub SQS queue as placeholder target pending Step Functions implementation
-            var stubQueue = new Queue(this, "StubProcessingQueue", new QueueProps
+            // Polly SynthesizeSpeech task using AWS SDK integration
+            var pollyTask = new CustomState(this, "SynthesizeSpeech", new CustomStateProps
             {
-                Encryption = QueueEncryption.KMS_MANAGED,
-                DeadLetterQueue = new DeadLetterQueue
+                StateJson = new Dictionary<string, object>
                 {
-                    Queue = deadLetterQueue,
-                    MaxReceiveCount = 3
-                },
-                RemovalPolicy = RemovalPolicy.DESTROY
+                    { "Type", "Task" },
+                    { "Resource", "arn:aws:states:::aws-sdk:polly:synthesizeSpeech" },
+                    { "Parameters", new Dictionary<string, object>
+                        {
+                            { "OutputFormat", "mp3" },
+                            { "Text", "Welcome to the sleep audio pipeline. This is a placeholder for synthesized speech content." },
+                            { "VoiceId", "Joanna" }
+                        }
+                    },
+                    { "End", true }
+                }
             });
 
-            rule.AddTarget(new SqsQueue(stubQueue));
+            // Step Functions State Machine for sleep audio processing pipeline
+            var stateMachine = new StateMachine(this, "SleepAudioPipelineStateMachine", new StateMachineProps
+            {
+                DefinitionBody = DefinitionBody.FromChainable(pollyTask),
+                Logs = new LogOptions
+                {
+                    Destination = logGroup,
+                    Level = LogLevel.ALL,
+                    IncludeExecutionData = true
+                },
+                TracingEnabled = true
+            });
+
+            // Grant Polly permissions to the state machine execution role
+            stateMachine.AddToRolePolicy(new PolicyStatement(new PolicyStatementProps
+            {
+                Actions = new[] { "polly:SynthesizeSpeech" },
+                Resources = new[] { "*" }
+            }));
+
+            // Wire EventBridge rule to target the state machine
+            rule.AddTarget(new SfnStateMachine(stateMachine));
         }
     }
 }

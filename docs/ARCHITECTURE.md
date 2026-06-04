@@ -67,20 +67,36 @@ The following components from the target architecture have been implemented in t
 
 - **Output S3 Bucket (SleepAudioOutputBucket)**: Configured with KMS-managed server-side encryption (SSE-KMS), versioning enabled, and all public access blocked. RemovalPolicy is set to DESTROY for non-production use.
 
-- **EventBridge Rule (AudioUploadRule)**: Triggers on "Object Created" events from the input bucket (source: `aws.s3`, detail-type: `Object Created`, filtered by input bucket name). Currently targets a placeholder SQS queue pending Step Functions implementation.
+- **EventBridge Rule (AudioUploadRule)**: Triggers on "Object Created" events from the input bucket (source: `aws.s3`, detail-type: `Object Created`, filtered by input bucket name). Targets the Step Functions state machine to start execution, passing the S3 event as input.
 
-- **Stub SQS Queue (StubProcessingQueue)**: Temporary target for the EventBridge rule. Will be replaced by a Step Functions state machine in a future iteration.
+- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Currently contains a single Polly SynthesizeSpeech task state with placeholder parameters. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
+
+- **Amazon Polly Integration (SynthesizeSpeech task)**: AWS SDK integration task within the state machine that invokes polly:synthesizeSpeech. Configured with placeholder parameters (text, voice Joanna, output mp3). Will be enhanced with dynamic parameters from S3 event input in future iterations.
+
+- **EventBridge -> Step Functions wiring**: The AudioUploadRule now targets the Step Functions state machine directly (start execution), passing the S3 event as input.
 
 ```mermaid
 flowchart LR
     A[Input S3 Bucket] -->|Object Created Event| B[EventBridge Rule]
-    B -->|Targets| C[Stub SQS Queue]
-    D[Output S3 Bucket]
+    B -->|Start Execution| C[Step Functions State Machine]
+    C -->|SynthesizeSpeech Task| D[Amazon Polly]
+    E[Output S3 Bucket]
 ```
 
-> **Next Steps**: Replace the stub SQS queue target with an AWS Step Functions state machine
-> that orchestrates the full audio processing pipeline. Implement Lambda functions for
-> metadata extraction/validation and output assembly.
+> **Next Steps**: Implement Lambda functions for metadata validation, add dynamic input
+> from S3 events to the Polly task, and wire output to the Output S3 Bucket.
+
+### Orchestration Layer
+
+The Step Functions state machine serves as the central orchestration engine for the sleep audio processing pipeline. It coordinates individual processing steps, manages retries, and provides visibility into pipeline execution.
+
+**AWS SDK Integration Pattern**: The state machine uses the AWS SDK integration pattern (`arn:aws:states:::aws-sdk:polly:synthesizeSpeech`) to invoke Amazon Polly directly without an intermediary Lambda function. This reduces latency, cost, and operational complexity for straightforward service calls.
+
+**IAM Least-Privilege**: The state machine execution role is scoped to only the permissions required:
+- `polly:SynthesizeSpeech` for invoking Amazon Polly text-to-speech
+- CloudWatch Logs permissions for writing execution logs (automatically granted by CDK when logging is configured)
+
+**Logging and Tracing Strategy**: Execution logging is configured at level ALL with `IncludeExecutionData = true`, capturing full state input/output for debugging. The log group has a 14-day retention policy. X-Ray tracing is enabled for end-to-end request tracking across the pipeline.
 
 ## Data Flow
 
