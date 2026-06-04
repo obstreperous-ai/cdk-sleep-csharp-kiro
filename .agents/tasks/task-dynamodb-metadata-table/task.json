@@ -9,6 +9,6 @@
     "tests": "pass",
     "test_quality": "pass",
     "docker_build": "skipped",
-    "summary": "All 23 tests pass (15 existing + 8 new DynamoDB/state machine tests). Build completes with 0 errors/warnings. CDK synth produces valid CloudFormation. Tests exercise real DynamoDB table properties (key schema, billing, encryption, PITR) and verify state machine definition contains DynamoDB integrations and IAM permissions."
+    "summary": "All 24 tests pass (15 existing + 8 DynamoDB/state machine tests + 1 state ordering test). Build completes with 0 errors/warnings. CDK synth produces valid CloudFormation. Review fixes applied: AddCatch on UpdateStatusCompleted and new state ordering test."
   }
 }
