@@ -69,13 +69,19 @@ The following components from the target architecture have been implemented in t
 
 - **EventBridge Rule (AudioUploadRule)**: Triggers on "Object Created" events from the input bucket (source: `aws.s3`, detail-type: `Object Created`, filtered by input bucket name). Targets the Step Functions state machine to start execution, passing the S3 event as input.
 
-- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Contains a chain of DynamoDB PutItem (write initial metadata), Polly SynthesizeSpeech, and DynamoDB UpdateItem (mark completed) tasks. Error handling catches failures and updates status to FAILED. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
+- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Contains a chain of DynamoDB PutItem (write initial metadata), Polly SynthesizeSpeech, DynamoDB UpdateItem (mark completed), and SNS Publish (notify completion) tasks. Error handling catches failures, updates status to FAILED with error details, and publishes failure notification via SNS. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
 
 - **Amazon Polly Integration (SynthesizeSpeech task)**: AWS SDK integration task within the state machine that invokes polly:synthesizeSpeech. Configured with placeholder parameters (text, voice Joanna, output mp3). Will be enhanced with dynamic parameters from S3 event input in future iterations.
 
 - **DynamoDB Metadata Table (SleepAudioMetadataTable)**: Stores processing metadata for each audio file. Partition key `audioId` (String). On-demand billing (PAY_PER_REQUEST). AWS-managed encryption enabled. Point-in-time recovery enabled for data protection. RemovalPolicy set to DESTROY for non-production use.
 
-- **State Machine DynamoDB Integration**: The state machine includes DynamoDB PutItem and UpdateItem tasks for metadata tracking. Processing flow: writes initial record with status PROCESSING, executes Polly synthesis, then updates status to COMPLETED. On failure, a catch handler updates status to FAILED. Fields tracked include audioId, inputBucket, inputKey, createdAt, updatedAt, and status.
+- **State Machine DynamoDB Integration**: The state machine includes DynamoDB PutItem and UpdateItem tasks for metadata tracking. Processing flow: writes initial record with status PROCESSING, executes Polly synthesis, then updates status to COMPLETED. On failure, a catch handler updates status to FAILED and stores error details in the `errorInfo` field. Fields tracked include audioId, inputBucket, inputKey, createdAt, updatedAt, status, and errorInfo (on failure).
+
+- **SNS Completed Topic (SleepAudioPipelineCompleted)**: Encrypted with AWS-managed SNS KMS key (alias/aws/sns). Receives notification when pipeline processing completes successfully. Message includes audioId, status, and timestamp.
+
+- **SNS Failed Topic (SleepAudioPipelineFailed)**: Encrypted with AWS-managed SNS KMS key (alias/aws/sns). Receives notification when pipeline processing fails. Message includes audioId, status, error details, and timestamp.
+
+- **SNS Notification Integration**: The state machine publishes to SNS topics as the final step in both success and failure paths. Success path publishes to Completed topic after DynamoDB status update. Failure path publishes to Failed topic after DynamoDB error status update.
 
 - **EventBridge -> Step Functions wiring**: The AudioUploadRule now targets the Step Functions state machine directly (start execution), passing the S3 event as input.
 
@@ -86,6 +92,8 @@ flowchart LR
     C -->|WriteInitialMetadata| D[DynamoDB Metadata Table]
     C -->|SynthesizeSpeech Task| E[Amazon Polly]
     C -->|UpdateStatus| D
+    C -->|Success| G[SNS Completed Topic]
+    C -->|Failure| H[SNS Failed Topic]
     F[Output S3 Bucket]
 ```
 
@@ -101,6 +109,7 @@ The Step Functions state machine serves as the central orchestration engine for 
 **IAM Least-Privilege**: The state machine execution role is scoped to only the permissions required:
 - `polly:SynthesizeSpeech` for invoking Amazon Polly text-to-speech
 - `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:BatchWriteItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable` for writing metadata to DynamoDB (granted via `metadataTable.GrantWriteData`)
+- `sns:Publish` to the SleepAudioPipelineCompleted and SleepAudioPipelineFailed topic ARNs (granted via `topic.GrantPublish`)
 - CloudWatch Logs permissions for writing execution logs (automatically granted by CDK when logging is configured)
 
 **Logging and Tracing Strategy**: Execution logging is configured at level ALL with `IncludeExecutionData = true`, capturing full state input/output for debugging. The log group has a 14-day retention policy. X-Ray tracing is enabled for end-to-end request tracking across the pipeline.
@@ -118,6 +127,7 @@ The DynamoDB metadata table (`SleepAudioMetadataTable`) provides a durable recor
 | `inputKey` | String | Source S3 object key |
 | `createdAt` | String | ISO 8601 timestamp when processing started |
 | `updatedAt` | String | ISO 8601 timestamp of the last status change |
+| `errorInfo` | String | Error cause details (present only when status is `FAILED`) |
 
 **Table Configuration:**
 - Billing mode: PAY_PER_REQUEST (on-demand) for unpredictable workloads
@@ -129,9 +139,38 @@ The DynamoDB metadata table (`SleepAudioMetadataTable`) provides a durable recor
 1. **WriteInitialMetadata** (DynamoPutItem): Before processing begins, writes an initial record with status `PROCESSING`, capturing the input bucket, key, and creation timestamp.
 2. **SynthesizeSpeech** (Polly): Performs the audio synthesis task.
 3. **UpdateStatusCompleted** (DynamoUpdateItem): On success, updates the record status to `COMPLETED` with an `updatedAt` timestamp.
-4. **UpdateStatusFailed** (DynamoUpdateItem): On any error (caught via `States.ALL`), updates the record status to `FAILED` with an `updatedAt` timestamp.
+4. **PublishSuccessNotification** (SnsPublish): Publishes a completion notification to the SNS Completed topic with audioId, status, and timestamp.
+5. **Error path** (Catch on steps 1-3 via `States.ALL`): **UpdateStatusFailed** (DynamoUpdateItem) updates the record status to `FAILED` with an `updatedAt` timestamp and `errorInfo` containing error details, then **PublishFailureNotification** (SnsPublish) publishes a failure notification to the SNS Failed topic with audioId, status, error details, and timestamp.
 
 This pattern ensures every processing job has a metadata trail regardless of success or failure, enabling downstream monitoring and retry logic.
+
+### Notification Layer
+
+The SNS notification layer provides real-time pipeline lifecycle notifications for downstream consumers and operational monitoring.
+
+**Topics:**
+- **SleepAudioPipelineCompleted**: Encrypted SNS topic that receives notifications when pipeline processing completes successfully.
+- **SleepAudioPipelineFailed**: Encrypted SNS topic that receives notifications when pipeline processing fails.
+
+**Success Path:**
+WriteInitialMetadata -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
+
+The success notification is published as the final step after all processing completes and the DynamoDB record is updated to COMPLETED.
+
+**Failure Path (via Catch on any step):**
+UpdateStatusFailed (with errorInfo) -> PublishFailureNotification
+
+When any step in the main chain (WriteInitialMetadata, SynthesizeSpeech, or UpdateStatusCompleted) throws an error, the `States.ALL` catch handler routes execution to UpdateStatusFailed, which writes the FAILED status and error details to DynamoDB, followed by PublishFailureNotification to alert subscribers.
+
+**KMS Encryption:**
+Both SNS topics are encrypted using the AWS-managed SNS key (`alias/aws/sns`), ensuring notification payloads are encrypted at rest without requiring a custom KMS key.
+
+**IAM Least-Privilege:**
+The state machine role is granted `sns:Publish` only to the specific topic ARNs via CDK `GrantPublish`. This ensures the state machine cannot publish to any other SNS topics in the account.
+
+**Message Payloads:**
+- Success: includes `audioId`, `status` (COMPLETED), and `timestamp`
+- Failure: includes `audioId`, `status` (FAILED), error details, and `timestamp`
 
 ## Data Flow
 

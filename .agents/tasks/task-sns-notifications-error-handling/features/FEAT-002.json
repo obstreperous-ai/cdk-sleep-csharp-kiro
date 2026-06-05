@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "docs",
   "description": "Update docs/ARCHITECTURE.md to document SNS notification topics, error handling enhancements, and notification flow. Update the Mermaid diagram and add a Notifications Layer section.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Step 1 - Update the 'Current Implementation Status' section in docs/ARCHITECTURE.md to add entries for: (a) SNS Completed Topic (SleepAudioPipelineCompleted) with KMS encryption. (b) SNS Failed Topic (SleepAudioPipelineFailed) with KMS encryption. (c) Updated error handling description noting SNS publish on both success and failure paths. (d) Updated DynamoDB integration noting errorInfo field on failure.",
     "Step 2 - Update the current implementation Mermaid diagram (flowchart LR) to include SNS topics: Add nodes for SNS Completed Topic and SNS Failed Topic showing the state machine publishing to them on success/failure paths.",
