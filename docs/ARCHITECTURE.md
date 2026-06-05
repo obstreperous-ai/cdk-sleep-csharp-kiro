@@ -69,9 +69,13 @@ The following components from the target architecture have been implemented in t
 
 - **EventBridge Rule (AudioUploadRule)**: Triggers on "Object Created" events from the input bucket (source: `aws.s3`, detail-type: `Object Created`, filtered by input bucket name). Targets the Step Functions state machine to start execution, passing the S3 event as input.
 
-- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Currently contains a single Polly SynthesizeSpeech task state with placeholder parameters. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
+- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Contains a chain of DynamoDB PutItem (write initial metadata), Polly SynthesizeSpeech, and DynamoDB UpdateItem (mark completed) tasks. Error handling catches failures and updates status to FAILED. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
 
 - **Amazon Polly Integration (SynthesizeSpeech task)**: AWS SDK integration task within the state machine that invokes polly:synthesizeSpeech. Configured with placeholder parameters (text, voice Joanna, output mp3). Will be enhanced with dynamic parameters from S3 event input in future iterations.
+
+- **DynamoDB Metadata Table (SleepAudioMetadataTable)**: Stores processing metadata for each audio file. Partition key `audioId` (String). On-demand billing (PAY_PER_REQUEST). AWS-managed encryption enabled. Point-in-time recovery enabled for data protection. RemovalPolicy set to DESTROY for non-production use.
+
+- **State Machine DynamoDB Integration**: The state machine includes DynamoDB PutItem and UpdateItem tasks for metadata tracking. Processing flow: writes initial record with status PROCESSING, executes Polly synthesis, then updates status to COMPLETED. On failure, a catch handler updates status to FAILED. Fields tracked include audioId, inputBucket, inputKey, createdAt, updatedAt, and status.
 
 - **EventBridge -> Step Functions wiring**: The AudioUploadRule now targets the Step Functions state machine directly (start execution), passing the S3 event as input.
 
@@ -79,8 +83,10 @@ The following components from the target architecture have been implemented in t
 flowchart LR
     A[Input S3 Bucket] -->|Object Created Event| B[EventBridge Rule]
     B -->|Start Execution| C[Step Functions State Machine]
-    C -->|SynthesizeSpeech Task| D[Amazon Polly]
-    E[Output S3 Bucket]
+    C -->|WriteInitialMetadata| D[DynamoDB Metadata Table]
+    C -->|SynthesizeSpeech Task| E[Amazon Polly]
+    C -->|UpdateStatus| D
+    F[Output S3 Bucket]
 ```
 
 > **Next Steps**: Implement Lambda functions for metadata validation, add dynamic input
@@ -94,9 +100,38 @@ The Step Functions state machine serves as the central orchestration engine for 
 
 **IAM Least-Privilege**: The state machine execution role is scoped to only the permissions required:
 - `polly:SynthesizeSpeech` for invoking Amazon Polly text-to-speech
+- `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:BatchWriteItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable` for writing metadata to DynamoDB (granted via `metadataTable.GrantWriteData`)
 - CloudWatch Logs permissions for writing execution logs (automatically granted by CDK when logging is configured)
 
 **Logging and Tracing Strategy**: Execution logging is configured at level ALL with `IncludeExecutionData = true`, capturing full state input/output for debugging. The log group has a 14-day retention policy. X-Ray tracing is enabled for end-to-end request tracking across the pipeline.
+
+### Metadata Layer
+
+The DynamoDB metadata table (`SleepAudioMetadataTable`) provides a durable record of each audio processing job and its lifecycle status.
+
+**Table Schema:**
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `audioId` (PK) | String | The S3 object key of the uploaded audio file |
+| `status` | String | Processing status: `PROCESSING`, `COMPLETED`, or `FAILED` |
+| `inputBucket` | String | Source S3 bucket name |
+| `inputKey` | String | Source S3 object key |
+| `createdAt` | String | ISO 8601 timestamp when processing started |
+| `updatedAt` | String | ISO 8601 timestamp of the last status change |
+
+**Table Configuration:**
+- Billing mode: PAY_PER_REQUEST (on-demand) for unpredictable workloads
+- Encryption: AWS-managed server-side encryption
+- Point-in-time recovery: Enabled for data protection and accidental deletion recovery
+- Removal policy: DESTROY (non-production)
+
+**State Machine Integration:**
+1. **WriteInitialMetadata** (DynamoPutItem): Before processing begins, writes an initial record with status `PROCESSING`, capturing the input bucket, key, and creation timestamp.
+2. **SynthesizeSpeech** (Polly): Performs the audio synthesis task.
+3. **UpdateStatusCompleted** (DynamoUpdateItem): On success, updates the record status to `COMPLETED` with an `updatedAt` timestamp.
+4. **UpdateStatusFailed** (DynamoUpdateItem): On any error (caught via `States.ALL`), updates the record status to `FAILED` with an `updatedAt` timestamp.
+
+This pattern ensures every processing job has a metadata trail regardless of success or failure, enabling downstream monitoring and retry logic.
 
 ## Data Flow
 

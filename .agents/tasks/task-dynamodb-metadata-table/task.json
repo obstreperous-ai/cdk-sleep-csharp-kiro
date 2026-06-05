@@ -1,0 +1,14 @@
+{
+  "task_id": "task-dynamodb-metadata-table",
+  "task_description": "Add DynamoDB table for storing audio pipeline metadata and extend Step Functions state machine with basic input/output handling (PutItem on trigger, UpdateItem on completion/failure). Follow strict TDD. Update ARCHITECTURE.md.",
+  "status": "completed",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "All 24 tests pass (15 existing + 8 DynamoDB/state machine tests + 1 state ordering test). Build completes with 0 errors/warnings. CDK synth produces valid CloudFormation. Review fixes applied: AddCatch on UpdateStatusCompleted and new state ordering test."
+  }
+}

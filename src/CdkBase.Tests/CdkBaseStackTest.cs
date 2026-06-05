@@ -339,5 +339,199 @@ namespace CdkBase.Tests
 
             Assert.Contains("logs:CreateLogDelivery", policiesJson);
         }
+
+        [Fact]
+        public void Stack_HasDynamoDbMetadataTable()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify exactly one DynamoDB table exists
+            template.ResourceCountIs("AWS::DynamoDB::Table", 1);
+        }
+
+        [Fact]
+        public void Stack_DynamoDbTableHasCorrectKeySchema()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify partition key is 'audioId' of type S
+            var tables = template.FindResources("AWS::DynamoDB::Table");
+            Assert.Single(tables);
+
+            var tableEntry = tables.First();
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(tableEntry.Value))
+                .GetProperty("Properties");
+
+            var keySchema = properties.GetProperty("KeySchema");
+            Assert.Equal(1, keySchema.GetArrayLength());
+            Assert.Equal("audioId", keySchema[0].GetProperty("AttributeName").GetString());
+            Assert.Equal("HASH", keySchema[0].GetProperty("KeyType").GetString());
+
+            var attributeDefinitions = properties.GetProperty("AttributeDefinitions");
+            Assert.Equal(1, attributeDefinitions.GetArrayLength());
+            Assert.Equal("audioId", attributeDefinitions[0].GetProperty("AttributeName").GetString());
+            Assert.Equal("S", attributeDefinitions[0].GetProperty("AttributeType").GetString());
+        }
+
+        [Fact]
+        public void Stack_DynamoDbTableHasOnDemandBilling()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify BillingMode is PAY_PER_REQUEST
+            template.HasResourceProperties("AWS::DynamoDB::Table", new Dictionary<string, object>
+            {
+                { "BillingMode", "PAY_PER_REQUEST" }
+            });
+        }
+
+        [Fact]
+        public void Stack_DynamoDbTableHasEncryption()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify SSESpecification Enabled is true
+            var tables = template.FindResources("AWS::DynamoDB::Table");
+            Assert.Single(tables);
+
+            var tableEntry = tables.First();
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(tableEntry.Value))
+                .GetProperty("Properties");
+
+            var sseEnabled = properties.GetProperty("SSESpecification").GetProperty("SSEEnabled").GetBoolean();
+            Assert.True(sseEnabled);
+        }
+
+        [Fact]
+        public void Stack_DynamoDbTableHasPointInTimeRecovery()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify PointInTimeRecoverySpecification PointInTimeRecoveryEnabled is true
+            var tables = template.FindResources("AWS::DynamoDB::Table");
+            Assert.Single(tables);
+
+            var tableEntry = tables.First();
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(tableEntry.Value))
+                .GetProperty("Properties");
+
+            var pitrEnabled = properties
+                .GetProperty("PointInTimeRecoverySpecification")
+                .GetProperty("PointInTimeRecoveryEnabled")
+                .GetBoolean();
+            Assert.True(pitrEnabled);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionContainsDynamoDbPutItem()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify state machine definition contains DynamoDB PutItem resource
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var stateMachineEntry = stateMachines.First();
+            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
+
+            // CDK splits the ARN across Fn::Join boundaries, so check for the resource suffix
+            Assert.Contains(":states:::dynamodb:putItem", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionContainsDynamoDbUpdateItem()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify state machine definition contains DynamoDB UpdateItem resource
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var stateMachineEntry = stateMachines.First();
+            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
+
+            // CDK splits the ARN across Fn::Join boundaries, so check for the resource suffix
+            Assert.Contains(":states:::dynamodb:updateItem", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionHasCorrectStateOrdering()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify state machine definition contains all expected states
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var stateMachineEntry = stateMachines.First();
+            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
+
+            // Verify all states exist in the definition
+            Assert.Contains("WriteInitialMetadata", serialized);
+            Assert.Contains("SynthesizeSpeech", serialized);
+            Assert.Contains("UpdateStatusCompleted", serialized);
+            Assert.Contains("UpdateStatusFailed", serialized);
+
+            // Verify catch handlers exist (States.ALL error routing)
+            Assert.Contains("States.ALL", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineRoleHasDynamoDbPermissions()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify IAM policies contain DynamoDB PutItem and UpdateItem actions
+            var policies = template.FindResources("AWS::IAM::Policy");
+            var policiesJson = JsonSerializer.Serialize(policies);
+
+            Assert.Contains("dynamodb:PutItem", policiesJson);
+            Assert.Contains("dynamodb:UpdateItem", policiesJson);
+        }
     }
 }

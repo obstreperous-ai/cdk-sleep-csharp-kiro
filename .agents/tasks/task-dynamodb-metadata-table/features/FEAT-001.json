@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add DynamoDB metadata table and extend Step Functions state machine with DynamoDB input/output handling, following strict TDD (write failing tests first, then implement). Includes updating ARCHITECTURE.md.",
+  "status": "completed",
+  "steps": [
+    "Step 1 - Write failing tests in src/CdkBase.Tests/CdkBaseStackTest.cs. Add the following test methods: (a) Stack_HasDynamoDbMetadataTable - verify AWS::DynamoDB::Table resource exists with count 1. (b) Stack_DynamoDbTableHasCorrectKeySchema - verify partition key 'audioId' of type S. (c) Stack_DynamoDbTableHasOnDemandBilling - verify BillingMode is PAY_PER_REQUEST. (d) Stack_DynamoDbTableHasEncryption - verify SSESpecification Enabled is true. (e) Stack_DynamoDbTableHasPointInTimeRecovery - verify PointInTimeRecoverySpecification PointInTimeRecoveryEnabled is true. (f) Stack_StateMachineDefinitionContainsDynamoDbPutItem - verify the state machine definition JSON contains 'arn:aws:states:::dynamodb:putItem' resource. (g) Stack_StateMachineDefinitionContainsDynamoDbUpdateItem - verify the state machine definition JSON contains 'arn:aws:states:::dynamodb:updateItem' resource. (h) Stack_StateMachineRoleHasDynamoDbPermissions - verify IAM policies contain 'dynamodb:PutItem' and 'dynamodb:UpdateItem' actions.",
+    "Step 2 - Run tests to confirm they fail (Red phase). Use: export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
+    "Step 3 - Implement DynamoDB table in src/CdkBase/CdkBaseStack.cs. Add 'using Amazon.CDK.AWS.DynamoDB;' and 'using Amazon.CDK.AWS.StepFunctions.Tasks;' imports. Create the table: var metadataTable = new Table(this, 'SleepAudioMetadataTable', new TableProps { PartitionKey = new Attribute { Name = 'audioId', Type = AttributeType.STRING }, BillingMode = BillingMode.PAY_PER_REQUEST, Encryption = TableEncryption.AWS_MANAGED, PointInTimeRecovery = true, RemovalPolicy = RemovalPolicy.DESTROY });",
+    "Step 4 - Refactor the state machine definition to include DynamoDB tasks. Replace the single pollyTask with a chain: (1) A DynamoDBPutItem task ('WriteInitialMetadata') that writes an initial record with audioId (from input $.detail.object.key), status='PROCESSING', inputBucket (from $.detail.bucket.name), inputKey (from $.detail.object.key), createdAt (use $$.State.EnteredTime or States.Format). (2) The existing Polly SynthesizeSpeech task. (3) A DynamoDBUpdateItem task ('UpdateStatusCompleted') that updates status to 'COMPLETED' and sets updatedAt. Add a Catch on the chain that transitions to a 'UpdateStatusFailed' DynamoDBUpdateItem task setting status='FAILED'. Use the CDK L2 DynamoPutItem, DynamoUpdateItem constructs from Amazon.CDK.AWS.StepFunctions.Tasks namespace.",
+    "Step 5 - Grant the state machine appropriate DynamoDB permissions. Use metadataTable.GrantWriteData(stateMachine) for least-privilege IAM.",
+    "Step 6 - Run tests again to confirm they pass (Green phase). Use: export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
+    "Step 7 - Run cdk synth to verify CloudFormation synthesis: export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && npx cdk synth",
+    "Step 8 - Update docs/ARCHITECTURE.md: (a) In the 'Current Implementation Status' section, add a bullet for SleepAudioMetadataTable describing partition key audioId, on-demand billing, encryption, PITR. (b) Add a bullet describing the state machine now has DynamoDB PutItem/UpdateItem tasks for metadata tracking with PROCESSING/COMPLETED/FAILED status flow. (c) Update the 'Current Implementation Status' Mermaid diagram to include the DynamoDB table and data flow arrows (state machine writes to DynamoDB). (d) Add a new section '### Metadata Layer' describing the DynamoDB table schema and how the state machine interacts with it."
+  ],
+  "acceptance_criteria": [
+    "All new DynamoDB-related tests pass (table exists, key schema correct, on-demand billing, encryption, PITR)",
+    "All new state machine integration tests pass (DynamoDB PutItem/UpdateItem in definition, IAM permissions)",
+    "All existing 15 tests continue to pass",
+    "dotnet build src/CdkBase.sln completes with 0 errors",
+    "npx cdk synth completes successfully",
+    "ARCHITECTURE.md is updated with metadata layer documentation and updated Mermaid diagram"
+  ],
+  "verification": [
+    "export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet build src/CdkBase.sln",
+    "export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet test src/CdkBase.sln --verbosity normal",
+    "export PATH=/root/.dotnet:$PATH && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "CDK L2 DynamoPutItem/DynamoUpdateItem constructs use Fn::Join in synthesized templates, splitting ARNs across boundaries. Tests must assert on the suffix ':states:::dynamodb:putItem' rather than the full ARN. PointInTimeRecovery property is deprecated in favor of PointInTimeRecoverySpecification with PointInTimeRecoveryEnabled. The CustomState AddCatch method works for error handling on the pollyTask CustomState. GrantWriteData grants BatchWriteItem, DeleteItem, DescribeTable, PutItem, and UpdateItem permissions."
+}
