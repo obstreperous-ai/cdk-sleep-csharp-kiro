@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-003",
+  "type": "fix",
+  "description": "Address review feedback: Add catch on PublishSuccessNotification, fix asymmetric SNS message schema for failure notification, and add a test verifying state ordering/catch wiring.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1 - Add a Catch on PublishSuccessNotification routing to updateStatusFailed on error.",
+    "Step 2 - Change the failure notification SNS message to use $.error.Cause instead of $.error for consistent flat schema.",
+    "Step 3 - Add a test verifying state machine definition has correct state wiring (Next fields and catch targets)."
+  ],
+  "acceptance_criteria": [
+    "publishSuccess.AddCatch routes to updateStatusFailed with States.ALL and ResultPath $.error",
+    "publishFailure uses JsonPath.StringAt(\"$.error.Cause\") instead of JsonPath.StringAt(\"$.error\") for the error field",
+    "A new test verifies state ordering: UpdateStatusCompleted -> PublishSuccessNotification, UpdateStatusFailed -> PublishFailureNotification, and catch routing to UpdateStatusFailed",
+    "All tests pass",
+    "CDK synth succeeds"
+  ],
+  "verification": [
+    "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet test src/CdkBase.sln --verbosity normal",
+    "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}

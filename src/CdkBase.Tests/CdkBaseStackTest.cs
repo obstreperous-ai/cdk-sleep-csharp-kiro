@@ -617,5 +617,32 @@ namespace CdkBase.Tests
             // Verify the FAILED update includes errorInfo in the update expression
             Assert.Contains("errorInfo", serialized);
         }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionHasCorrectStateWiring()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // The definition is embedded in Fn::Join strings, so inner quotes are escaped as \"
+            // Verify success path ordering: UpdateStatusCompleted -> PublishSuccessNotification
+            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+
+            // Verify failure path ordering: UpdateStatusFailed -> PublishFailureNotification
+            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+
+            // Verify catch routing targets UpdateStatusFailed
+            Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", serialized);
+        }
     }
 }

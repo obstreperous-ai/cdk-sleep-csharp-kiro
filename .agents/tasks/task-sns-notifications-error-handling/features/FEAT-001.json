@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Add SNS topics and integrate SNS publish notifications into the Step Functions state machine for pipeline completion and failure, with enhanced DynamoDB status updates including error details. Following strict TDD: write failing tests first, then implement.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Add failing tests to src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Test that exactly 2 SNS topics exist (AWS::SNS::Topic resource count). (b) Test that both SNS topics have KmsMasterKeyId configured (encrypted). (c) Test that the state machine definition contains SNS Publish tasks (sns:Publish resource ARN pattern). (d) Test that the state machine definition contains a 'PublishSuccessNotification' state and a 'PublishFailureNotification' state. (e) Test that IAM policies grant sns:Publish permission to the state machine role. (f) Test that the state machine definition still contains error handling (States.ALL catch) routing to failure path with SNS publish. (g) Test that the DynamoDB UpdateItem for FAILED state includes error details field in the expression.",
     "Step 2 - Add using directives to CdkBaseStack.cs: Add 'using Amazon.CDK.AWS.SNS;' and 'using Amazon.CDK.AWS.KMS;' if needed.",
@@ -30,5 +30,5 @@
     "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && npx cdk synth"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "JsonPath.JsonToString(JsonPath.ObjectAt()) does not work in CDK .NET due to JSII type inference failure with _Proxy types. Used JsonPath.StringAt(\"$.error.Cause\") instead to capture the error cause string in DynamoDB. Also, the SnsPublish resource ARN is split across Fn::Join boundaries in CloudFormation so tests should search for ':states:::sns:publish' rather than the full 'arn:aws:states:::sns:publish' string."
 }

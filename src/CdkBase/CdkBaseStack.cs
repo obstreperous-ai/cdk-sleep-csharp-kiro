@@ -181,7 +181,7 @@ namespace CdkBase
                 {
                     { "audioId", JsonPath.StringAt("$.detail.object.key") },
                     { "status", "FAILED" },
-                    { "error", JsonPath.StringAt("$.error") },
+                    { "error", JsonPath.StringAt("$.error.Cause") },
                     { "timestamp", JsonPath.StringAt("$$.State.EnteredTime") }
                 }),
                 ResultPath = "$.snsFailResult"
@@ -210,6 +210,12 @@ namespace CdkBase
             });
 
             updateStatusCompleted.AddCatch(updateStatusFailed, new CatchProps
+            {
+                Errors = new[] { "States.ALL" },
+                ResultPath = "$.error"
+            });
+
+            publishSuccess.AddCatch(updateStatusFailed, new CatchProps
             {
                 Errors = new[] { "States.ALL" },
                 ResultPath = "$.error"
