@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "fix",
   "description": "Address review feedback: Add catch on PublishSuccessNotification, fix asymmetric SNS message schema for failure notification, and add a test verifying state ordering/catch wiring.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Add a Catch on PublishSuccessNotification routing to updateStatusFailed on error.",
     "Step 2 - Change the failure notification SNS message to use $.error.Cause instead of $.error for consistent flat schema.",
@@ -20,5 +20,5 @@
     "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && npx cdk synth"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "Used JavaScriptEncoder.UnsafeRelaxedJsonEscaping in the state wiring test to get consistent serialization. The Fn::Join definition strings embed quotes that are escaped as backslash-quote in the serialized output, so test assertions use escaped quote patterns."
 }
