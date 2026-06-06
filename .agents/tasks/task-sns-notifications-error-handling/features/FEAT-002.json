@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-002",
+  "type": "docs",
+  "description": "Update docs/ARCHITECTURE.md to document SNS notification topics, error handling enhancements, and notification flow. Update the Mermaid diagram and add a Notifications Layer section.",
+  "status": "completed",
+  "steps": [
+    "Step 1 - Update the 'Current Implementation Status' section in docs/ARCHITECTURE.md to add entries for: (a) SNS Completed Topic (SleepAudioPipelineCompleted) with KMS encryption. (b) SNS Failed Topic (SleepAudioPipelineFailed) with KMS encryption. (c) Updated error handling description noting SNS publish on both success and failure paths. (d) Updated DynamoDB integration noting errorInfo field on failure.",
+    "Step 2 - Update the current implementation Mermaid diagram (flowchart LR) to include SNS topics: Add nodes for SNS Completed Topic and SNS Failed Topic showing the state machine publishing to them on success/failure paths.",
+    "Step 3 - Add a 'Notification Layer' subsection under Current Implementation Status (similar to 'Orchestration Layer' and 'Metadata Layer') describing: (a) Two encrypted SNS topics for pipeline completion and failure notifications. (b) Success path: after DynamoDB COMPLETED update, publishes notification with audioId and timestamp. (c) Failure path: after DynamoDB FAILED update, publishes notification with audioId, error details, and timestamp. (d) IAM least-privilege: state machine role granted sns:Publish only to the specific topic ARNs. (e) KMS encryption ensures notification payloads are encrypted at rest.",
+    "Step 4 - Update the State Machine Integration subsection to reflect the new flow: WriteInitialMetadata -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification, with error path UpdateStatusFailed -> PublishFailureNotification."
+  ],
+  "acceptance_criteria": [
+    "docs/ARCHITECTURE.md contains descriptions of both SNS topics",
+    "The current implementation Mermaid diagram shows SNS notification flow",
+    "A Notification Layer section exists describing the notification and error handling design",
+    "The State Machine Integration flow description includes SNS publish steps",
+    "Documentation is consistent with the implemented CDK code"
+  ],
+  "verification": [
+    "Read docs/ARCHITECTURE.md and confirm SNS topics, notification layer, and updated diagrams are present"
+  ],
+  "blocked_reason": null,
+  "findings": "Documentation-only change. Added SNS topics, Notification Layer subsection, updated Mermaid diagram, updated State Machine Integration flow, added errorInfo to table schema, and updated IAM permissions list."
+}

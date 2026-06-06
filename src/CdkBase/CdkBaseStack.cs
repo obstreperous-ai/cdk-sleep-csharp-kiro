@@ -4,8 +4,10 @@ using Amazon.CDK.AWS.DynamoDB;
 using Amazon.CDK.AWS.Events;
 using Amazon.CDK.AWS.Events.Targets;
 using Amazon.CDK.AWS.IAM;
+using Amazon.CDK.AWS.KMS;
 using Amazon.CDK.AWS.Logs;
 using Amazon.CDK.AWS.S3;
+using Amazon.CDK.AWS.SNS;
 using Amazon.CDK.AWS.StepFunctions;
 using Amazon.CDK.AWS.StepFunctions.Tasks;
 using Constructs;
@@ -135,9 +137,10 @@ namespace CdkBase
                 ExpressionAttributeValues = new Dictionary<string, DynamoAttributeValue>
                 {
                     { ":status", DynamoAttributeValue.FromString("FAILED") },
-                    { ":updatedAt", DynamoAttributeValue.FromString(JsonPath.StringAt("$$.State.EnteredTime")) }
+                    { ":updatedAt", DynamoAttributeValue.FromString(JsonPath.StringAt("$$.State.EnteredTime")) },
+                    { ":errorInfo", DynamoAttributeValue.FromString(JsonPath.StringAt("$.error.Cause")) }
                 },
-                UpdateExpression = "SET #s = :status, updatedAt = :updatedAt",
+                UpdateExpression = "SET #s = :status, updatedAt = :updatedAt, errorInfo = :errorInfo",
                 ExpressionAttributeNames = new Dictionary<string, string>
                 {
                     { "#s", "status" }
@@ -145,11 +148,53 @@ namespace CdkBase
                 ResultPath = "$.updateResult"
             });
 
-            // Chain: WriteInitialMetadata -> SynthesizeSpeech -> UpdateStatusCompleted
-            // With Catch on the chain transitioning to UpdateStatusFailed
+            // SNS Topic for pipeline completion notifications
+            var completedTopic = new Topic(this, "SleepAudioPipelineCompleted", new TopicProps
+            {
+                MasterKey = Alias.FromAliasName(this, "SnsCompletedKey", "alias/aws/sns")
+            });
+
+            // SNS Topic for pipeline failure notifications
+            var failedTopic = new Topic(this, "SleepAudioPipelineFailed", new TopicProps
+            {
+                MasterKey = Alias.FromAliasName(this, "SnsFailedKey", "alias/aws/sns")
+            });
+
+            // SNS Publish task for success notification
+            var publishSuccess = new SnsPublish(this, "PublishSuccessNotification", new SnsPublishProps
+            {
+                Topic = completedTopic,
+                Message = TaskInput.FromObject(new Dictionary<string, object>
+                {
+                    { "audioId", JsonPath.StringAt("$.detail.object.key") },
+                    { "status", "COMPLETED" },
+                    { "timestamp", JsonPath.StringAt("$$.State.EnteredTime") }
+                }),
+                ResultPath = "$.snsResult"
+            });
+
+            // SNS Publish task for failure notification
+            var publishFailure = new SnsPublish(this, "PublishFailureNotification", new SnsPublishProps
+            {
+                Topic = failedTopic,
+                Message = TaskInput.FromObject(new Dictionary<string, object>
+                {
+                    { "audioId", JsonPath.StringAt("$.detail.object.key") },
+                    { "status", "FAILED" },
+                    { "error", JsonPath.StringAt("$.error.Cause") },
+                    { "timestamp", JsonPath.StringAt("$$.State.EnteredTime") }
+                }),
+                ResultPath = "$.snsFailResult"
+            });
+
+            // Wire failure path: UpdateStatusFailed -> PublishFailureNotification
+            updateStatusFailed.Next(publishFailure);
+
+            // Chain: WriteInitialMetadata -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
             var chain = Chain.Start(writeInitialMetadata)
                 .Next(pollyTask)
-                .Next(updateStatusCompleted);
+                .Next(updateStatusCompleted)
+                .Next(publishSuccess);
 
             // Add error handling - catch all errors and transition to UpdateStatusFailed
             writeInitialMetadata.AddCatch(updateStatusFailed, new CatchProps
@@ -165,6 +210,12 @@ namespace CdkBase
             });
 
             updateStatusCompleted.AddCatch(updateStatusFailed, new CatchProps
+            {
+                Errors = new[] { "States.ALL" },
+                ResultPath = "$.error"
+            });
+
+            publishSuccess.AddCatch(updateStatusFailed, new CatchProps
             {
                 Errors = new[] { "States.ALL" },
                 ResultPath = "$.error"
@@ -192,6 +243,10 @@ namespace CdkBase
 
             // Grant DynamoDB write permissions to the state machine
             metadataTable.GrantWriteData(stateMachine);
+
+            // Grant SNS publish permissions to the state machine
+            completedTopic.GrantPublish(stateMachine);
+            failedTopic.GrantPublish(stateMachine);
 
             // Wire EventBridge rule to target the state machine
             rule.AddTarget(new SfnStateMachine(stateMachine));

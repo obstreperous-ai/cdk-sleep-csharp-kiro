@@ -533,5 +533,116 @@ namespace CdkBase.Tests
             Assert.Contains("dynamodb:PutItem", policiesJson);
             Assert.Contains("dynamodb:UpdateItem", policiesJson);
         }
+
+        [Fact]
+        public void Stack_HasTwoSnsTopics()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+            template.ResourceCountIs("AWS::SNS::Topic", 2);
+        }
+
+        [Fact]
+        public void Stack_SnsTopicsHaveKmsEncryption()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var topics = template.FindResources("AWS::SNS::Topic");
+            Assert.Equal(2, topics.Count);
+
+            foreach (var topic in topics)
+            {
+                var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(topic.Value))
+                    .GetProperty("Properties");
+                Assert.True(properties.TryGetProperty("KmsMasterKeyId", out _),
+                    $"Topic {topic.Key} is missing KmsMasterKeyId encryption");
+            }
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionContainsSnsPublishTasks()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
+            Assert.Contains(":states:::sns:publish", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineHasSuccessAndFailureNotificationStates()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
+            Assert.Contains("PublishSuccessNotification", serialized);
+            Assert.Contains("PublishFailureNotification", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineRoleHasSnsPublishPermissions()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var policies = template.FindResources("AWS::IAM::Policy");
+            var policiesJson = JsonSerializer.Serialize(policies);
+            Assert.Contains("sns:Publish", policiesJson);
+        }
+
+        [Fact]
+        public void Stack_StateMachineErrorPathIncludesErrorInfo()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
+            // Verify the FAILED update includes errorInfo in the update expression
+            Assert.Contains("errorInfo", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionHasCorrectStateWiring()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // The definition is embedded in Fn::Join strings, so inner quotes are escaped as \"
+            // Verify success path ordering: UpdateStatusCompleted -> PublishSuccessNotification
+            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+
+            // Verify failure path ordering: UpdateStatusFailed -> PublishFailureNotification
+            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+
+            // Verify catch routing targets UpdateStatusFailed
+            Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", serialized);
+        }
     }
 }

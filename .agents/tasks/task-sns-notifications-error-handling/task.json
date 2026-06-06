@@ -1,0 +1,14 @@
+{
+  "task_id": "task-sns-notifications-error-handling",
+  "task_description": "Add SNS notifications for pipeline completion and errors. Enhance the Step Functions state machine with SNS publish tasks on success and failure paths, update DynamoDB status tracking to include error details, and update ARCHITECTURE.md documentation.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Build succeeds with 0 warnings. All 31 tests pass (24 existing + 7 new). CDK synth succeeds. Review issues addressed: added catch on PublishSuccessNotification, fixed asymmetric message schema, added state wiring test. Unprotected error-handling chain left as-is (adding catches risks circular routing; Step Functions execution history provides visibility)."
+  }
+}

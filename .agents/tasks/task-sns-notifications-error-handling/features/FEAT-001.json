@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add SNS topics and integrate SNS publish notifications into the Step Functions state machine for pipeline completion and failure, with enhanced DynamoDB status updates including error details. Following strict TDD: write failing tests first, then implement.",
+  "status": "completed",
+  "steps": [
+    "Step 1 - Add failing tests to src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Test that exactly 2 SNS topics exist (AWS::SNS::Topic resource count). (b) Test that both SNS topics have KmsMasterKeyId configured (encrypted). (c) Test that the state machine definition contains SNS Publish tasks (sns:Publish resource ARN pattern). (d) Test that the state machine definition contains a 'PublishSuccessNotification' state and a 'PublishFailureNotification' state. (e) Test that IAM policies grant sns:Publish permission to the state machine role. (f) Test that the state machine definition still contains error handling (States.ALL catch) routing to failure path with SNS publish. (g) Test that the DynamoDB UpdateItem for FAILED state includes error details field in the expression.",
+    "Step 2 - Add using directives to CdkBaseStack.cs: Add 'using Amazon.CDK.AWS.SNS;' and 'using Amazon.CDK.AWS.KMS;' if needed.",
+    "Step 3 - Create two SNS topics in CdkBaseStack.cs using L2 Topic construct: (a) 'SleepAudioPipelineCompleted' topic with KMS encryption (use aws/sns alias or create a KMS key). (b) 'SleepAudioPipelineFailed' topic with KMS encryption.",
+    "Step 4 - Create SNS Publish tasks using SnsPublish L2 construct from Amazon.CDK.AWS.StepFunctions.Tasks: (a) 'PublishSuccessNotification' - publishes to Completed topic with message containing audioId, status COMPLETED, and timestamp. (b) 'PublishFailureNotification' - publishes to Failed topic with message containing audioId, status FAILED, error details, and timestamp.",
+    "Step 5 - Update the DynamoDB UpdateStatusFailed task to include error details: Add ':errorInfo' expression attribute value from '$.error' and update the UpdateExpression to 'SET #s = :status, updatedAt = :updatedAt, errorInfo = :errorInfo'.",
+    "Step 6 - Rewire the state machine chain: Change success path to WriteInitialMetadata -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification. Change failure path to UpdateStatusFailed -> PublishFailureNotification. Keep Catch blocks on writeInitialMetadata, pollyTask, and updateStatusCompleted routing to updateStatusFailed.",
+    "Step 7 - Grant SNS publish permissions: Use topic.GrantPublish(stateMachine) for both topics to apply least-privilege IAM.",
+    "Step 8 - Verify all tests pass by running: dotnet test src/CdkBase.sln --verbosity normal",
+    "Step 9 - Run npx cdk synth to verify CloudFormation template synthesis succeeds."
+  ],
+  "acceptance_criteria": [
+    "dotnet build src/CdkBase.sln succeeds without errors",
+    "dotnet test src/CdkBase.sln passes all tests (existing 24 + new SNS/error handling tests)",
+    "Two AWS::SNS::Topic resources exist in the synthesized template with KMS encryption",
+    "State machine definition includes PublishSuccessNotification and PublishFailureNotification states",
+    "State machine definition routes success path through SNS publish after DynamoDB update",
+    "State machine definition routes failure path through SNS publish after DynamoDB status update to FAILED",
+    "IAM policies include sns:Publish permission scoped to the topic ARNs",
+    "DynamoDB FAILED update includes error information field",
+    "npx cdk synth succeeds"
+  ],
+  "verification": [
+    "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet test src/CdkBase.sln --verbosity normal",
+    "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "JsonPath.JsonToString(JsonPath.ObjectAt()) does not work in CDK .NET due to JSII type inference failure with _Proxy types. Used JsonPath.StringAt(\"$.error.Cause\") instead to capture the error cause string in DynamoDB. Also, the SnsPublish resource ARN is split across Fn::Join boundaries in CloudFormation so tests should search for ':states:::sns:publish' rather than the full 'arn:aws:states:::sns:publish' string."
+}

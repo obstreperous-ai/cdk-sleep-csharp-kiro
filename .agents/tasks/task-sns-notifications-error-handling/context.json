@@ -1,0 +1,21 @@
+{
+  "project_type": "C# .NET 8 AWS CDK infrastructure project",
+  "language": "C#",
+  "build_system": "dotnet CLI with solution file at src/CdkBase.sln. CDK synth via 'npx cdk synth'.",
+  "test_framework": "xUnit with CDK Assertions (Amazon.CDK.Assertions from Amazon.CDK.Lib). Tests in src/CdkBase.Tests/CdkBaseStackTest.cs.",
+  "build_command": "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet build src/CdkBase.sln",
+  "test_command": "export PATH=\"/root/.dotnet:$PATH\" && unset NODE_OPTIONS && cd /projects/sandbox/cdk-sleep-csharp-kiro && dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. Run dotnet build src/CdkBase.sln to confirm compilation. 2. Run dotnet test src/CdkBase.sln --verbosity normal to confirm all tests pass. 3. Run npx cdk synth to confirm CloudFormation template synthesis succeeds.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "1. Install .NET 8 SDK: curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 8.0 --install-dir /root/.dotnet. 2. Export PATH=/root/.dotnet:$PATH. 3. Unset NODE_OPTIONS (sandbox has a preload that breaks JSII). 4. Run dotnet restore src/CdkBase.sln.",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode. .NET 8 SDK installed at /root/.dotnet. NODE_OPTIONS must be unset for JSII/CDK to work (sandbox sets --require for a non-existent proxy-bootstrap.js). Node.js v22 available via nvm.",
+  "contribution_requirements": "Strict TDD: write failing tests first, then implement minimal code. Use L2 constructs. Apply least-privilege IAM. Update docs/ARCHITECTURE.md after changes. Use conventional commits.",
+  "key_patterns": "Stack class in CdkBaseStack.cs. Tests use Template.FromStack(stack) then HasResourceProperties/FindResources/ResourceCountIs. State machine uses Chain.Start().Next() pattern with AddCatch for error handling. DynamoPutItem/DynamoUpdateItem for DynamoDB integration. CustomState for Polly SDK integration. Tests use JsonSerializer to inspect serialized resources.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md"
+  ],
+  "directory_structure": "src/CdkBase/ - main CDK stack code. src/CdkBase.Tests/ - xUnit test project. docs/ - architecture and guidelines documentation. .github/workflows/ci.yml - CI pipeline."
+}
