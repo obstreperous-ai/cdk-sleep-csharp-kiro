@@ -1,7 +1,7 @@
 {
   "task_id": "task-lambda-skeleton-state-machine",
   "task_description": "Create a basic Lambda function skeleton (SleepAudioProcessor) and integrate it into the Step Functions state machine using LambdaInvoke. Follow strict TDD approach: write failing tests first, then implement. The Lambda serves as a placeholder for audio processing/metadata enrichment. Grant least-privilege IAM permissions. Update ARCHITECTURE.md.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002"],
   "blocked_reason": null,
   "verification": {
