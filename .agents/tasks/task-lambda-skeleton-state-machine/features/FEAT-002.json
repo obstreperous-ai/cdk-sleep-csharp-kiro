@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Add a Lambda function skeleton (SleepAudioProcessor) and integrate it into the Step Functions state machine using LambdaInvoke. Follow strict TDD: write failing tests first, then implement. The Lambda uses Python runtime with inline code that logs input, performs basic processing, and returns a response. It is inserted into the state machine chain after WriteInitialMetadata and before SynthesizeSpeech. Grant least-privilege IAM (state machine invokes Lambda, Lambda reads/writes DynamoDB). Update ARCHITECTURE.md.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Write failing tests in src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Test that an AWS::Lambda::Function resource exists with Python runtime (python3.12 or python3.11), handler 'index.handler', and environment variable TABLE_NAME referencing the DynamoDB table. (b) Test that the state machine definition contains a LambdaInvoke task state named 'ProcessAudio' (or 'SleepAudioProcessor') that references the Lambda function ARN. (c) Test that IAM policies grant the state machine 'lambda:InvokeFunction' permission on the Lambda. (d) Test that the Lambda execution role has DynamoDB read/write permissions (dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem). (e) Test the state ordering: WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification. (f) Test that the new ProcessAudio step has a Catch for States.ALL routing to UpdateStatusFailed.",
     "Step 2 - Create the Lambda handler code: Create a file at src/CdkBase/lambda/process_audio/index.py with a Python handler that: receives event input (S3 details, audioId from state machine), logs the input using the logging module, reads/writes to DynamoDB using boto3 (updates status to PROCESSING_AUDIO), wraps logic in try/except for basic error handling, and returns a response dict with status and enriched metadata.",
@@ -28,5 +28,5 @@
     "npx cdk synth"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 37 tests pass (6 new + 31 existing). CDK synth succeeds. Key findings: (1) Adding Amazon.CDK.AWS.Lambda import causes ambiguity with KMS.Alias - resolved by fully qualifying Amazon.CDK.AWS.KMS.Alias. (2) Code.FromAsset resolves relative to JSII runtime CWD which differs between cdk synth and dotnet test. Resolved using CallerFilePath attribute to compute absolute path to lambda directory from source file location. (3) CDK adds an internal BucketNotificationsHandler Lambda for S3 EventBridge integration, so FindResources returns 2 Lambda functions - tests must filter by logical ID containing 'SleepAudioProcessorFunction'."
 }
