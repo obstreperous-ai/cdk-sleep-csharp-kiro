@@ -1,0 +1,25 @@
+{
+  "project_type": "AWS CDK infrastructure project in C# (.NET 8) deploying serverless sleep audio pipeline",
+  "language": "C# (CDK infrastructure), Python (Lambda handler)",
+  "build_system": "dotnet CLI for C# CDK, npm for CDK CLI. Build uses dotnet restore/build/test on src/CdkBase.sln",
+  "test_framework": "xUnit with Amazon.CDK.Assertions (Template.FromStack, HasResourceProperties, ResourceCountIs, FindResources)",
+  "build_command": "dotnet build src/CdkBase.sln",
+  "test_command": "dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. dotnet restore src/CdkBase.sln 2. dotnet build src/CdkBase.sln 3. dotnet test src/CdkBase.sln --verbosity normal 4. npx cdk synth",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "dotnet restore src/CdkBase.sln",
+  "environment_constraints": "COMMON_DEPENDENCIES network - can install NuGet packages and npm packages. .NET 9 SDK available (roll-forward handles net8.0 targets). Node.js 22 available. Python 3.9+ available.",
+  "contribution_requirements": "Strict TDD: write failing tests FIRST, then implement minimal code. All changes must align with ARCHITECTURE.md. Update ARCHITECTURE.md for any new components. Follow Red-Green-Refactor cycle. Use L2 constructs. Apply least-privilege IAM.",
+  "key_patterns": "Tests use var app = new App(); var stack = new CdkBaseStack(app, 'TestStack'); var template = Template.FromStack(stack); then assert with template.HasResourceProperties(), template.ResourceCountIs(), template.FindResources(). Stack code is all in CdkBaseStack constructor. State machine uses Chain.Start().Next() pattern with CustomState for SDK integrations and L2 task constructs (DynamoPutItem, DynamoUpdateItem, SnsPublish) for typed integrations. Error handling via AddCatch with States.ALL. Lambda handler will be inline Python code using CfnFunction.Code.FromInline or from an asset directory.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase/CdkBase.csproj",
+    "src/CdkBase.Tests/CdkBase.Tests.csproj",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md",
+    "cdk.json",
+    ".github/workflows/ci.yml"
+  ],
+  "directory_structure": "Root: cdk.json, docs/ (ARCHITECTURE.md, AGENT_GUIDELINES.md), src/CdkBase/ (stack code - CdkBaseStack.cs, Program.cs, CdkBase.csproj), src/CdkBase.Tests/ (xUnit tests - CdkBaseStackTest.cs), .github/workflows/ci.yml"
+}
