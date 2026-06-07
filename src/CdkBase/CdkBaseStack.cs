@@ -1,10 +1,12 @@
 using System.Collections.Generic;
+using System.IO;
 using Amazon.CDK;
 using Amazon.CDK.AWS.DynamoDB;
 using Amazon.CDK.AWS.Events;
 using Amazon.CDK.AWS.Events.Targets;
 using Amazon.CDK.AWS.IAM;
 using Amazon.CDK.AWS.KMS;
+using Amazon.CDK.AWS.Lambda;
 using Amazon.CDK.AWS.Logs;
 using Amazon.CDK.AWS.S3;
 using Amazon.CDK.AWS.SNS;
@@ -105,6 +107,31 @@ namespace CdkBase
                 }
             });
 
+            // Lambda function for audio processing (metadata enrichment and validation)
+            var lambdaAssetPath = Path.GetFullPath(
+                Path.Combine(Path.GetDirectoryName(GetSourceFilePath()), "lambda", "process_audio"));
+            var processorFunction = new Function(this, "SleepAudioProcessorFunction", new FunctionProps
+            {
+                Runtime = Runtime.PYTHON_3_12,
+                Handler = "index.handler",
+                Code = Code.FromAsset(lambdaAssetPath),
+                Timeout = Duration.Seconds(30),
+                Environment = new Dictionary<string, string>
+                {
+                    { "TABLE_NAME", metadataTable.TableName }
+                }
+            });
+
+            // Grant the Lambda DynamoDB read/write access
+            metadataTable.GrantReadWriteData(processorFunction);
+
+            // LambdaInvoke task for ProcessAudio step in the state machine
+            var processAudioTask = new LambdaInvoke(this, "ProcessAudio", new LambdaInvokeProps
+            {
+                LambdaFunction = processorFunction,
+                ResultPath = "$.processAudioResult"
+            });
+
             // DynamoDB UpdateItem task - Update status to COMPLETED
             var updateStatusCompleted = new DynamoUpdateItem(this, "UpdateStatusCompleted", new DynamoUpdateItemProps
             {
@@ -151,13 +178,13 @@ namespace CdkBase
             // SNS Topic for pipeline completion notifications
             var completedTopic = new Topic(this, "SleepAudioPipelineCompleted", new TopicProps
             {
-                MasterKey = Alias.FromAliasName(this, "SnsCompletedKey", "alias/aws/sns")
+                MasterKey = Amazon.CDK.AWS.KMS.Alias.FromAliasName(this, "SnsCompletedKey", "alias/aws/sns")
             });
 
             // SNS Topic for pipeline failure notifications
             var failedTopic = new Topic(this, "SleepAudioPipelineFailed", new TopicProps
             {
-                MasterKey = Alias.FromAliasName(this, "SnsFailedKey", "alias/aws/sns")
+                MasterKey = Amazon.CDK.AWS.KMS.Alias.FromAliasName(this, "SnsFailedKey", "alias/aws/sns")
             });
 
             // SNS Publish task for success notification
@@ -190,14 +217,21 @@ namespace CdkBase
             // Wire failure path: UpdateStatusFailed -> PublishFailureNotification
             updateStatusFailed.Next(publishFailure);
 
-            // Chain: WriteInitialMetadata -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
+            // Chain: WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
             var chain = Chain.Start(writeInitialMetadata)
+                .Next(processAudioTask)
                 .Next(pollyTask)
                 .Next(updateStatusCompleted)
                 .Next(publishSuccess);
 
             // Add error handling - catch all errors and transition to UpdateStatusFailed
             writeInitialMetadata.AddCatch(updateStatusFailed, new CatchProps
+            {
+                Errors = new[] { "States.ALL" },
+                ResultPath = "$.error"
+            });
+
+            processAudioTask.AddCatch(updateStatusFailed, new CatchProps
             {
                 Errors = new[] { "States.ALL" },
                 ResultPath = "$.error"
@@ -250,6 +284,11 @@ namespace CdkBase
 
             // Wire EventBridge rule to target the state machine
             rule.AddTarget(new SfnStateMachine(stateMachine));
+        }
+
+        private static string GetSourceFilePath([System.Runtime.CompilerServices.CallerFilePath] string path = "")
+        {
+            return path;
         }
     }
 }

@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add a Lambda function skeleton (SleepAudioProcessor) and integrate it into the Step Functions state machine using LambdaInvoke. Follow strict TDD: write failing tests first, then implement. The Lambda uses Python runtime with inline code that logs input, performs basic processing, and returns a response. It is inserted into the state machine chain after WriteInitialMetadata and before SynthesizeSpeech. Grant least-privilege IAM (state machine invokes Lambda, Lambda reads/writes DynamoDB). Update ARCHITECTURE.md.",
+  "status": "completed",
+  "steps": [
+    "Step 1 - Write failing tests in src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Test that an AWS::Lambda::Function resource exists with Python runtime (python3.12 or python3.11), handler 'index.handler', and environment variable TABLE_NAME referencing the DynamoDB table. (b) Test that the state machine definition contains a LambdaInvoke task state named 'ProcessAudio' (or 'SleepAudioProcessor') that references the Lambda function ARN. (c) Test that IAM policies grant the state machine 'lambda:InvokeFunction' permission on the Lambda. (d) Test that the Lambda execution role has DynamoDB read/write permissions (dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem). (e) Test the state ordering: WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification. (f) Test that the new ProcessAudio step has a Catch for States.ALL routing to UpdateStatusFailed.",
+    "Step 2 - Create the Lambda handler code: Create a file at src/CdkBase/lambda/process_audio/index.py with a Python handler that: receives event input (S3 details, audioId from state machine), logs the input using the logging module, reads/writes to DynamoDB using boto3 (updates status to PROCESSING_AUDIO), wraps logic in try/except for basic error handling, and returns a response dict with status and enriched metadata.",
+    "Step 3 - Implement the Lambda construct in src/CdkBase/CdkBaseStack.cs: Add 'using Amazon.CDK.AWS.Lambda;' import. Create a new Function construct 'SleepAudioProcessorFunction' with Python runtime (Runtime.PYTHON_3_12 or PYTHON_3_11), handler 'index.handler', code from asset path (Code.FromAsset pointing to the lambda/process_audio directory), environment variables including TABLE_NAME from metadataTable.TableName, and a reasonable timeout (30 seconds). Grant the Lambda DynamoDB read/write: metadataTable.GrantReadWriteData(processorFunction).",
+    "Step 4 - Add LambdaInvoke task and integrate into state machine chain in src/CdkBase/CdkBaseStack.cs: Create a LambdaInvoke step 'ProcessAudio' using the new Lambda function with payload from state machine input (e.g., pass entire payload or specific fields). Modify the chain to insert ProcessAudio between WriteInitialMetadata and pollyTask: Chain.Start(writeInitialMetadata).Next(processAudioTask).Next(pollyTask).Next(updateStatusCompleted).Next(publishSuccess). Add error catch on processAudioTask routing to updateStatusFailed with ResultPath '$.error'.",
+    "Step 5 - Run tests to confirm all pass: 'dotnet test src/CdkBase.sln --verbosity normal'. All new tests and all existing tests must pass.",
+    "Step 6 - Run 'npx cdk synth' to verify synthesis succeeds.",
+    "Step 7 - Update docs/ARCHITECTURE.md: (a) Add a section describing the SleepAudioProcessor Lambda function, its role (metadata enrichment/validation placeholder), runtime, environment variables, and DynamoDB permissions. (b) Update the Current Implementation Status section to include the Lambda. (c) Update the state machine flow description to show WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification. (d) Update the 'Current Implementation Status' Mermaid diagram to include the Lambda node. (e) Update the IAM Least-Privilege section to include Lambda invoke and Lambda execution role permissions."
+  ],
+  "acceptance_criteria": [
+    "An AWS::Lambda::Function resource exists in the synthesized template with Python runtime and TABLE_NAME environment variable",
+    "The state machine definition includes a LambdaInvoke task state (ProcessAudio) between WriteInitialMetadata and SynthesizeSpeech",
+    "IAM policy grants the state machine lambda:InvokeFunction on the processor Lambda",
+    "The Lambda execution role has DynamoDB read/write permissions on the metadata table",
+    "The ProcessAudio step has error handling (Catch for States.ALL -> UpdateStatusFailed)",
+    "All existing tests continue to pass (state ordering tests may need updates for the new step)",
+    "dotnet test passes with 0 failures",
+    "npx cdk synth succeeds cleanly",
+    "docs/ARCHITECTURE.md is updated with Lambda documentation and updated diagrams"
+  ],
+  "verification": [
+    "dotnet test src/CdkBase.sln --verbosity normal",
+    "npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "All 37 tests pass (6 new + 31 existing). CDK synth succeeds. Key findings: (1) Adding Amazon.CDK.AWS.Lambda import causes ambiguity with KMS.Alias - resolved by fully qualifying Amazon.CDK.AWS.KMS.Alias. (2) Code.FromAsset resolves relative to JSII runtime CWD which differs between cdk synth and dotnet test. Resolved using CallerFilePath attribute to compute absolute path to lambda directory from source file location. (3) CDK adds an internal BucketNotificationsHandler Lambda for S3 EventBridge integration, so FindResources returns 2 Lambda functions - tests must filter by logical ID containing 'SleepAudioProcessorFunction'."
+}
