@@ -1,0 +1,22 @@
+{
+  "project_type": "AWS CDK with C# (.NET 8 target, .NET 9 SDK)",
+  "language": "C# (infrastructure), Python 3.12 (Lambda)",
+  "build_system": "dotnet CLI + CDK CLI (npx cdk synth)",
+  "test_framework": "xUnit with Amazon.CDK.Assertions (CDK template-level assertions)",
+  "build_command": "cd /projects/sandbox/cdk-sleep-csharp-kiro/src && NODE_OPTIONS=\"\" dotnet build",
+  "test_command": "cd /projects/sandbox/cdk-sleep-csharp-kiro/src && NODE_OPTIONS=\"\" dotnet test",
+  "verification_instructions": "1. Run 'NODE_OPTIONS=\"\" dotnet test' from src/ to verify all tests pass. 2. Run 'NODE_OPTIONS=\"\" npx cdk synth' from repo root to verify CloudFormation synthesis.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "No setup needed - .NET 9 SDK and Node 22 are pre-installed. Must use NODE_OPTIONS=\"\" for all dotnet test and cdk synth commands due to sandbox environment issue with JSII child process.",
+  "environment_constraints": "NODE_OPTIONS env var contains '--require /opt/amazon/kiro-agent/proxy-bootstrap.js' which breaks JSII. Must prepend NODE_OPTIONS=\"\" to all dotnet test and cdk commands. Network mode is COMMON_DEPENDENCIES (package registries available).",
+  "contribution_requirements": "Strict TDD: write failing tests first, then implement minimal code. Use L2 constructs. Maintain least-privilege IAM. Update ARCHITECTURE.md after changes. Conventional commit messages.",
+  "key_patterns": "Tests use Template.FromStack() with FindResources/HasResourceProperties patterns. JsonSerializer.Serialize is used to inspect serialized state machine definitions. State machine uses Chain.Start().Next() pattern with AddCatch for error handling. Lambda code in src/CdkBase/lambda/process_audio/index.py. CustomState used for Polly SDK integration.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase/lambda/process_audio/index.py",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md"
+  ],
+  "directory_structure": "Root: cdk.json, docs/. src/CdkBase/: main CDK stack (CdkBaseStack.cs, Program.cs), lambda/process_audio/index.py. src/CdkBase.Tests/: test file CdkBaseStackTest.cs."
+}

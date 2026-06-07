@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-002",
+  "type": "docs",
+  "description": "Update ARCHITECTURE.md to reflect the complete integrated pipeline with input validation, the ValidateInput Choice state, enhanced Lambda validation logic, and the full end-to-end flow (success and failure paths). Refine the Mermaid diagram to show all services, data flows, and the validation decision point.",
+  "status": "completed",
+  "steps": [
+    "In docs/ARCHITECTURE.md, update the 'Current Implementation Status' section to add:\n  - Description of the ValidateInput Choice state (checks file extension for supported formats: .mp3, .wav, .ogg, .txt)\n  - Updated SleepAudioProcessor Lambda description noting input validation (required fields, file extension, bucket name)\n  - INPUT_BUCKET_NAME environment variable added to the Lambda\n  - Updated state ordering to include ValidateInput between WriteInitialMetadata and ProcessAudio",
+    "Update the second Mermaid diagram (the implementation status one) to show the complete flow with the validation decision point:\n  Input S3 Bucket -> EventBridge Rule -> Step Functions State Machine -> WriteInitialMetadata (DynamoDB) -> ValidateInput (Choice) -> [valid] ProcessAudio (Lambda) -> SynthesizeSpeech (Polly) -> UpdateStatusCompleted (DynamoDB) -> PublishSuccessNotification (SNS Completed). Show the invalid path: ValidateInput -> [invalid] UpdateStatusFailed (DynamoDB) -> PublishFailureNotification (SNS Failed).",
+    "Add or update a section titled 'End-to-End Flow' or 'Pipeline Flow' describing:\n  a. Success path: S3 upload -> EventBridge -> Step Functions -> WriteInitialMetadata -> ValidateInput (passes) -> ProcessAudio (Lambda validates and enriches) -> SynthesizeSpeech (Polly) -> UpdateStatusCompleted -> PublishSuccessNotification\n  b. Failure path (invalid input): S3 upload -> EventBridge -> Step Functions -> WriteInitialMetadata -> ValidateInput (fails) -> UpdateStatusFailed -> PublishFailureNotification\n  c. Failure path (processing error): Any step after ValidateInput throws -> Catch handler -> UpdateStatusFailed -> PublishFailureNotification\n  d. Validation points: Choice state (file extension), Lambda handler (required fields, extension, bucket name)",
+    "Update the State Machine Integration section under Metadata Layer to include the ValidateInput step in the correct position (between WriteInitialMetadata and ProcessAudio).",
+    "Commit all changes with a conventional commit message: 'feat: complete pipeline wiring with input validation and end-to-end flow'",
+    "Run final verification: NODE_OPTIONS=\"\" dotnet test from src/ and NODE_OPTIONS=\"\" npx cdk synth from repo root."
+  ],
+  "acceptance_criteria": [
+    "ARCHITECTURE.md Mermaid diagram shows the complete pipeline including the ValidateInput Choice state.",
+    "ARCHITECTURE.md documents both success and failure paths through the pipeline.",
+    "ARCHITECTURE.md describes input validation logic (file extension check in Choice state, field validation in Lambda).",
+    "All tests still pass after documentation update.",
+    "A conventional commit is created on the feature branch with all changes."
+  ],
+  "verification": [
+    "cd /projects/sandbox/cdk-sleep-csharp-kiro/src && NODE_OPTIONS=\"\" dotnet test --verbosity normal",
+    "cd /projects/sandbox/cdk-sleep-csharp-kiro && NODE_OPTIONS=\"\" npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "Documentation update only. All 44 tests pass and CDK synth succeeds. Added ValidateInput Choice state docs, updated Mermaid diagram with decision point, added Input Validation section with two-layer validation approach, updated State Machine Integration numbering, and documented all error paths."
+}

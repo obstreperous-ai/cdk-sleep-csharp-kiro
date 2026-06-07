@@ -118,7 +118,8 @@ namespace CdkBase
                 Timeout = Duration.Seconds(30),
                 Environment = new Dictionary<string, string>
                 {
-                    { "TABLE_NAME", metadataTable.TableName }
+                    { "TABLE_NAME", metadataTable.TableName },
+                    { "INPUT_BUCKET_NAME", inputBucket.BucketName }
                 }
             });
 
@@ -217,12 +218,44 @@ namespace CdkBase
             // Wire failure path: UpdateStatusFailed -> PublishFailureNotification
             updateStatusFailed.Next(publishFailure);
 
-            // Chain: WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
-            var chain = Chain.Start(writeInitialMetadata)
-                .Next(processAudioTask)
+            // ValidateInput Choice state - checks file extension for supported formats
+            var validateInput = new Choice(this, "ValidateInput");
+
+            // Pass state to inject synthetic error payload when validation fails via Default path
+            var validationFailedPass = new Pass(this, "ValidationFailed", new PassProps
+            {
+                Result = Result.FromObject(new Dictionary<string, object>
+                {
+                    { "Error", "ValidationError" },
+                    { "Cause", "Unsupported file extension" }
+                }),
+                ResultPath = "$.error"
+            });
+            validationFailedPass.Next(updateStatusFailed);
+
+            // Define the processing chain after validation
+            var validProcessingChain = processAudioTask
                 .Next(pollyTask)
                 .Next(updateStatusCompleted)
                 .Next(publishSuccess);
+
+            // ValidateInput routes valid file extensions to processing, invalid to failure
+            validateInput
+                .When(Condition.Or(
+                    Condition.StringMatches("$.detail.object.key", "*.mp3"),
+                    Condition.StringMatches("$.detail.object.key", "*.wav"),
+                    Condition.StringMatches("$.detail.object.key", "*.ogg"),
+                    Condition.StringMatches("$.detail.object.key", "*.txt"),
+                    Condition.StringMatches("$.detail.object.key", "*.MP3"),
+                    Condition.StringMatches("$.detail.object.key", "*.WAV"),
+                    Condition.StringMatches("$.detail.object.key", "*.OGG"),
+                    Condition.StringMatches("$.detail.object.key", "*.TXT")
+                ), validProcessingChain)
+                .Otherwise(validationFailedPass);
+
+            // Chain: WriteInitialMetadata -> ValidateInput (Choice) -> [valid] ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
+            var chain = Chain.Start(writeInitialMetadata)
+                .Next(validateInput);
 
             // Add error handling - catch all errors and transition to UpdateStatusFailed
             writeInitialMetadata.AddCatch(updateStatusFailed, new CatchProps
