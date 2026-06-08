@@ -15,6 +15,8 @@ logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource("dynamodb")
 
+SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".ogg", ".txt")
+
 
 def handler(event, context):
     """Process audio metadata and update DynamoDB status.
@@ -32,16 +34,40 @@ def handler(event, context):
     if not table_name:
         raise ValueError("TABLE_NAME environment variable is not set")
 
+    # Validate required fields
+    detail = event.get("detail")
+    if not detail:
+        raise ValueError("Missing 'detail' in event input")
+
+    bucket_info = detail.get("bucket")
+    if not bucket_info or not bucket_info.get("name"):
+        raise ValueError("Missing or empty 'detail.bucket.name' in event input")
+
+    object_info = detail.get("object")
+    if not object_info or not object_info.get("key"):
+        raise ValueError("Missing or empty 'detail.object.key' in event input")
+
+    bucket_name = bucket_info["name"]
+    audio_id = object_info["key"]
+
+    # Validate file extension
+    lower_key = audio_id.lower()
+    if not any(lower_key.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
+        raise ValueError(
+            f"Unsupported file format: '{audio_id}'. "
+            f"Supported extensions: {', '.join(SUPPORTED_EXTENSIONS)}"
+        )
+
+    # Optionally validate bucket name matches INPUT_BUCKET_NAME
+    input_bucket_name = os.environ.get("INPUT_BUCKET_NAME")
+    if input_bucket_name and bucket_name != input_bucket_name:
+        raise ValueError(
+            f"Unexpected bucket: '{bucket_name}'. Expected: '{input_bucket_name}'"
+        )
+
     table = dynamodb.Table(table_name)
 
     try:
-        # Extract audio ID from the event
-        audio_id = event.get("detail", {}).get("object", {}).get("key", "")
-        bucket_name = event.get("detail", {}).get("bucket", {}).get("name", "")
-
-        if not audio_id:
-            raise ValueError("Missing audioId in event input")
-
         logger.info("Processing audio: %s from bucket: %s", audio_id, bucket_name)
 
         # Update status to PROCESSING_AUDIO

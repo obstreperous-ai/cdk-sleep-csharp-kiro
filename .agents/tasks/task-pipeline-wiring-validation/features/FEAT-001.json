@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add input validation to the pipeline: TDD tests first, then implement a validation Choice state in the Step Functions state machine and enhance the Lambda function to validate required fields (bucket, key) and reject unsupported file extensions. Error paths should route to DynamoDB FAILED status and SNS failure notification.",
+  "status": "completed",
+  "steps": [
+    "Create a new git branch 'feat/pipeline-wiring-validation' from main.",
+    "In src/CdkBase.Tests/CdkBaseStackTest.cs, add the following new test methods (TDD - write tests FIRST before any implementation):\n  - Stack_StateMachineDefinitionContainsValidateInputState: Verify the state machine definition contains a 'ValidateInput' state (Choice state for input validation).\n  - Stack_StateMachineDefinitionHasValidationErrorPath: Verify that the state machine has a path from validation failure to UpdateStatusFailed (validation rejects invalid inputs).\n  - Stack_LambdaFunctionHasInputBucketEnvironmentVariable: Verify the Lambda has an INPUT_BUCKET_NAME environment variable (used to validate the source bucket).\n  - Stack_StateMachineDefinitionHasCompleteEndToEndFlow: Verify the full chain: WriteInitialMetadata -> ValidateInput (Choice) -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification, with ValidateInput routing invalid inputs to UpdateStatusFailed.\n  - Stack_EventBridgeRuleTargetsStateMachineWithRoleArn: Verify the EventBridge rule target has a RoleArn (confirming proper IAM for triggering).\n  - Stack_InputValidationChecksFileExtension: Verify the state machine definition references file extension validation logic (the Choice state checks for supported extensions like .mp3, .wav, .ogg, .txt).\n  - Stack_StateMachineDefinitionStartsWithWriteInitialMetadata: Verify the state machine StartAt is 'WriteInitialMetadata'.",
+    "Run tests to confirm they fail (TDD red phase): NODE_OPTIONS=\"\" dotnet test from src/.",
+    "In src/CdkBase/CdkBaseStack.cs, implement the following changes:\n  a. Add a 'ValidateInput' Choice state after WriteInitialMetadata that checks the S3 object key for supported file extensions (.mp3, .wav, .ogg, .txt). Use a Choice state with StringMatches conditions (e.g., $.detail.object.key ends with .mp3, .wav, .ogg, or .txt). Default path (unsupported extension) routes to UpdateStatusFailed.\n  b. Update the chain to: WriteInitialMetadata -> ValidateInput (Choice) -> [valid] ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification. The Choice 'otherwise' (default) routes to UpdateStatusFailed -> PublishFailureNotification.\n  c. Add INPUT_BUCKET_NAME environment variable to the Lambda function (set to inputBucket.BucketName).\n  d. Ensure all AddCatch handlers remain in place for error handling on ProcessAudio, SynthesizeSpeech, UpdateStatusCompleted, and PublishSuccessNotification.\n  e. Note: WriteInitialMetadata should still have its own Catch to handle any DynamoDB errors before validation.",
+    "In src/CdkBase/lambda/process_audio/index.py, enhance the handler to:\n  a. Validate required fields: check that event contains detail.bucket.name and detail.object.key. If missing, raise a ValueError with a clear message.\n  b. Validate file extension: check that the object key ends with a supported extension (.mp3, .wav, .ogg, .txt). If unsupported, raise a ValueError indicating the unsupported format.\n  c. Optionally validate the bucket name matches the INPUT_BUCKET_NAME environment variable if set.\n  d. Keep existing PROCESSING_AUDIO status update logic after validation passes.",
+    "Run tests to confirm they pass (TDD green phase): NODE_OPTIONS=\"\" dotnet test from src/.",
+    "Run NODE_OPTIONS=\"\" npx cdk synth from the repo root to verify CloudFormation synthesis succeeds."
+  ],
+  "acceptance_criteria": [
+    "All new tests pass when running NODE_OPTIONS=\"\" dotnet test from src/.",
+    "All existing 37 tests continue to pass.",
+    "The state machine definition contains a ValidateInput Choice state that checks file extensions.",
+    "Invalid file extensions route to UpdateStatusFailed -> PublishFailureNotification path.",
+    "Valid file extensions (.mp3, .wav, .ogg, .txt) route to ProcessAudio.",
+    "The Lambda function validates required fields and file extensions, raising ValueError on failure.",
+    "The Lambda has INPUT_BUCKET_NAME environment variable.",
+    "NODE_OPTIONS=\"\" npx cdk synth succeeds from repo root."
+  ],
+  "verification": [
+    "cd /projects/sandbox/cdk-sleep-csharp-kiro/src && NODE_OPTIONS=\"\" dotnet test --verbosity normal",
+    "cd /projects/sandbox/cdk-sleep-csharp-kiro && NODE_OPTIONS=\"\" npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "All 44 tests pass (37 existing + 7 new). CDK synth succeeds. The state machine definition strings in the template are stored inside Fn::Join arrays, so when serialized with UnsafeRelaxedJsonEscaping the field names/values appear with backslash-escaped quotes (e.g. \\\"StartAt\\\":\\\"WriteInitialMetadata\\\"). Tests must use that format when asserting on definition content. Choice state cannot be part of Chain.Start().Next() chain in CDK - must use writeInitialMetadata.Next(validateInput) separately and define the Choice conditions with .When()/.Otherwise()."
+}

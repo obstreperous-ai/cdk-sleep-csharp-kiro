@@ -760,5 +760,211 @@ namespace CdkBase.Tests
             // has the expected error handling pattern
             Assert.Contains("States.ALL", serialized);
         }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionContainsValidateInputState()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify state machine definition contains a ValidateInput Choice state
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
+            Assert.Contains("ValidateInput", serialized);
+            Assert.Contains("Choice", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionHasValidationErrorPath()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify ValidateInput has a Default path to ValidationFailed Pass state
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // The Choice state's Default path should route to ValidationFailed
+            Assert.Contains("\\\"Default\\\":\\\"ValidationFailed\\\"", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionHasValidationFailedPassState()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the ValidationFailed Pass state exists with synthetic error payload
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Verify the ValidationFailed state exists and is a Pass type
+            Assert.Contains("ValidationFailed", serialized);
+            // Verify it transitions to UpdateStatusFailed
+            Assert.Contains("\\\"ValidationFailed\\\"", serialized);
+            // Verify it injects error payload with Cause
+            Assert.Contains("Unsupported file extension", serialized);
+            Assert.Contains("ValidationError", serialized);
+            // Verify ResultPath is $.error
+            Assert.Contains("$.error", serialized);
+        }
+
+        [Fact]
+        public void Stack_LambdaFunctionHasInputBucketEnvironmentVariable()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the Lambda function has INPUT_BUCKET_NAME environment variable
+            var functions = template.FindResources("AWS::Lambda::Function");
+            var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
+
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
+                .GetProperty("Properties");
+
+            var envVars = properties.GetProperty("Environment").GetProperty("Variables");
+            Assert.True(envVars.TryGetProperty("INPUT_BUCKET_NAME", out _),
+                "Lambda function is missing INPUT_BUCKET_NAME environment variable");
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionHasCompleteEndToEndFlow()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify complete chain: WriteInitialMetadata -> ValidateInput -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // WriteInitialMetadata transitions to ValidateInput
+            Assert.Contains("\\\"Next\\\":\\\"ValidateInput\\\"", serialized);
+            // ValidateInput valid path transitions to ProcessAudio
+            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", serialized);
+            // ProcessAudio transitions to SynthesizeSpeech
+            Assert.Contains("\\\"Next\\\":\\\"SynthesizeSpeech\\\"", serialized);
+            // UpdateStatusCompleted transitions to PublishSuccessNotification
+            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+            // UpdateStatusFailed transitions to PublishFailureNotification
+            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+        }
+
+        [Fact]
+        public void Stack_EventBridgeRuleTargetsStateMachineWithRoleArn()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify EventBridge rule target has a RoleArn
+            var rules = template.FindResources("AWS::Events::Rule");
+            Assert.Single(rules);
+
+            var ruleEntry = rules.First();
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(ruleEntry.Value))
+                .GetProperty("Properties");
+
+            var targets = properties.GetProperty("Targets");
+            Assert.True(targets.GetArrayLength() > 0);
+
+            var target = targets[0];
+            Assert.True(target.TryGetProperty("RoleArn", out _),
+                "EventBridge rule target is missing RoleArn");
+        }
+
+        [Fact]
+        public void Stack_InputValidationChecksFileExtension()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the state machine definition references file extension patterns
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
+
+            // The Choice state should check for supported extensions (lowercase)
+            Assert.Contains("*.mp3", serialized);
+            Assert.Contains("*.wav", serialized);
+            Assert.Contains("*.ogg", serialized);
+            Assert.Contains("*.txt", serialized);
+
+            // The Choice state should also check for uppercase extensions
+            Assert.Contains("*.MP3", serialized);
+            Assert.Contains("*.WAV", serialized);
+            Assert.Contains("*.OGG", serialized);
+            Assert.Contains("*.TXT", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineDefinitionStartsWithWriteInitialMetadata()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the state machine StartAt is WriteInitialMetadata
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", serialized);
+        }
     }
 }

@@ -69,7 +69,7 @@ The following components from the target architecture have been implemented in t
 
 - **EventBridge Rule (AudioUploadRule)**: Triggers on "Object Created" events from the input bucket (source: `aws.s3`, detail-type: `Object Created`, filtered by input bucket name). Targets the Step Functions state machine to start execution, passing the S3 event as input.
 
-- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Contains a chain of DynamoDB PutItem (write initial metadata), LambdaInvoke (process audio metadata), Polly SynthesizeSpeech, DynamoDB UpdateItem (mark completed), and SNS Publish (notify completion) tasks. Error handling catches failures, updates status to FAILED with error details, and publishes failure notification via SNS. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
+- **Step Functions State Machine (SleepAudioPipelineStateMachine)**: Orchestrates the sleep audio processing pipeline. Contains a chain of DynamoDB PutItem (write initial metadata), a ValidateInput Choice state (check file extension), LambdaInvoke (process audio metadata with input validation), Polly SynthesizeSpeech, DynamoDB UpdateItem (mark completed), and SNS Publish (notify completion) tasks. The ValidateInput Choice state rejects unsupported file types before Lambda invocation. Error handling catches failures on all Task states, updates status to FAILED with error details, and publishes failure notification via SNS. Logging enabled (CloudWatch Logs, level ALL). Tracing enabled (X-Ray).
 
 - **Amazon Polly Integration (SynthesizeSpeech task)**: AWS SDK integration task within the state machine that invokes polly:synthesizeSpeech. Configured with placeholder parameters (text, voice Joanna, output mp3). Will be enhanced with dynamic parameters from S3 event input in future iterations.
 
@@ -77,7 +77,9 @@ The following components from the target architecture have been implemented in t
 
 - **State Machine DynamoDB Integration**: The state machine includes DynamoDB PutItem and UpdateItem tasks for metadata tracking. Processing flow: writes initial record with status PROCESSING, invokes SleepAudioProcessor Lambda, executes Polly synthesis, then updates status to COMPLETED. On failure, a catch handler updates status to FAILED and stores error details in the `errorInfo` field. Fields tracked include audioId, inputBucket, inputKey, createdAt, updatedAt, status, and errorInfo (on failure).
 
-- **SleepAudioProcessor Lambda Function (SleepAudioProcessorFunction)**: Python 3.12 Lambda function that processes audio metadata between the initial write and Polly synthesis. Receives the S3 event payload from the state machine, updates the DynamoDB metadata record status to `PROCESSING_AUDIO`, and returns enriched metadata for downstream steps. Configured with a 30-second timeout and the `TABLE_NAME` environment variable referencing the DynamoDB metadata table. Granted DynamoDB read/write permissions via `metadataTable.GrantReadWriteData`. The state machine invokes this function using a LambdaInvoke task with error handling (Catch for `States.ALL` routing to `UpdateStatusFailed`).
+- **ValidateInput Choice State**: A Step Functions Choice state positioned between WriteInitialMetadata and ProcessAudio that validates the uploaded file extension. Checks `$.detail.object.key` using StringMatches conditions for supported formats (`.mp3`, `.wav`, `.ogg`, `.txt`). Valid extensions route to ProcessAudio; invalid extensions (Default path) route to UpdateStatusFailed -> PublishFailureNotification.
+
+- **SleepAudioProcessor Lambda Function (SleepAudioProcessorFunction)**: Python 3.12 Lambda function that processes audio metadata between input validation and Polly synthesis. Performs two-layer input validation: verifies required fields (`detail.bucket.name`, `detail.object.key`), checks file extension against supported formats, and validates bucket name matches the expected input bucket. Configured with a 30-second timeout and environment variables `TABLE_NAME` (DynamoDB metadata table) and `INPUT_BUCKET_NAME` (expected source bucket for validation). Granted DynamoDB read/write permissions via `metadataTable.GrantReadWriteData`. The state machine invokes this function using a LambdaInvoke task with error handling (Catch for `States.ALL` routing to `UpdateStatusFailed`).
 
 - **SNS Completed Topic (SleepAudioPipelineCompleted)**: Encrypted with AWS-managed SNS KMS key (alias/aws/sns). Receives notification when pipeline processing completes successfully. Message includes audioId, status, and timestamp.
 
@@ -92,17 +94,21 @@ flowchart LR
     A[Input S3 Bucket] -->|Object Created Event| B[EventBridge Rule]
     B -->|Start Execution| C[Step Functions State Machine]
     C -->|WriteInitialMetadata| D[DynamoDB Metadata Table]
-    C -->|ProcessAudio| I[SleepAudioProcessor Lambda]
+    C -->|ValidateInput| V{Choice: File Extension?}
+    V -->|Valid: .mp3/.wav/.ogg/.txt| I[SleepAudioProcessor Lambda]
     I -->|Update Status| D
-    C -->|SynthesizeSpeech Task| E[Amazon Polly]
-    C -->|UpdateStatus| D
-    C -->|Success| G[SNS Completed Topic]
-    C -->|Failure| H[SNS Failed Topic]
+    V -->|Invalid: Default| UF[UpdateStatusFailed]
+    UF -->|Update Status FAILED| D
+    UF --> H[SNS Failed Topic]
+    I --> E[Amazon Polly SynthesizeSpeech]
+    E --> UC[UpdateStatusCompleted]
+    UC -->|Update Status COMPLETED| D
+    UC --> G[SNS Completed Topic]
     F[Output S3 Bucket]
 ```
 
 > **Next Steps**: Add dynamic input from S3 events to the Polly task, implement AI enhancement
-> with Bedrock, and wire output to the Output S3 Bucket.
+> with Bedrock, wire output to the Output S3 Bucket, and add content delivery via CloudFront.
 
 ### Orchestration Layer
 
@@ -146,11 +152,12 @@ The DynamoDB metadata table (`SleepAudioMetadataTable`) provides a durable recor
 
 **State Machine Integration:**
 1. **WriteInitialMetadata** (DynamoPutItem): Before processing begins, writes an initial record with status `PROCESSING`, capturing the input bucket, key, and creation timestamp.
-2. **ProcessAudio** (LambdaInvoke): Invokes the SleepAudioProcessor Lambda to update status to `PROCESSING_AUDIO` and enrich metadata. Passes the full state machine payload to the function.
-3. **SynthesizeSpeech** (Polly): Performs the audio synthesis task.
-4. **UpdateStatusCompleted** (DynamoUpdateItem): On success, updates the record status to `COMPLETED` with an `updatedAt` timestamp.
-5. **PublishSuccessNotification** (SnsPublish): Publishes a completion notification to the SNS Completed topic with audioId, status, and timestamp.
-6. **Error path** (Catch on steps 1-4 via `States.ALL`): **UpdateStatusFailed** (DynamoUpdateItem) updates the record status to `FAILED` with an `updatedAt` timestamp and `errorInfo` containing error details, then **PublishFailureNotification** (SnsPublish) publishes a failure notification to the SNS Failed topic with audioId, status, error details, and timestamp.
+2. **ValidateInput** (Choice): Checks the file extension of `$.detail.object.key` using StringMatches conditions. Supported extensions (`.mp3`, `.wav`, `.ogg`, `.txt`) route to ProcessAudio. Unsupported extensions (Default) route to UpdateStatusFailed.
+3. **ProcessAudio** (LambdaInvoke): Invokes the SleepAudioProcessor Lambda to validate required fields, check file extension, verify bucket name, update status to `PROCESSING_AUDIO`, and enrich metadata. Passes the full state machine payload to the function.
+4. **SynthesizeSpeech** (Polly): Performs the audio synthesis task.
+5. **UpdateStatusCompleted** (DynamoUpdateItem): On success, updates the record status to `COMPLETED` with an `updatedAt` timestamp.
+6. **PublishSuccessNotification** (SnsPublish): Publishes a completion notification to the SNS Completed topic with audioId, status, and timestamp.
+7. **Error path** (Catch on Task states via `States.ALL`): **UpdateStatusFailed** (DynamoUpdateItem) updates the record status to `FAILED` with an `updatedAt` timestamp and `errorInfo` containing error details, then **PublishFailureNotification** (SnsPublish) publishes a failure notification to the SNS Failed topic with audioId, status, error details, and timestamp.
 
 This pattern ensures every processing job has a metadata trail regardless of success or failure, enabling downstream monitoring and retry logic.
 
@@ -163,14 +170,19 @@ The SNS notification layer provides real-time pipeline lifecycle notifications f
 - **SleepAudioPipelineFailed**: Encrypted SNS topic that receives notifications when pipeline processing fails.
 
 **Success Path:**
-WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
+WriteInitialMetadata -> ValidateInput (passes) -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
 
 The success notification is published as the final step after all processing completes and the DynamoDB record is updated to COMPLETED.
 
-**Failure Path (via Catch on any step):**
+**Failure Path (invalid input via ValidateInput):**
+WriteInitialMetadata -> ValidateInput (fails - unsupported extension) -> UpdateStatusFailed -> PublishFailureNotification
+
+When the ValidateInput Choice state determines the file extension is not supported, execution routes directly to UpdateStatusFailed and then PublishFailureNotification without invoking the Lambda or Polly.
+
+**Failure Path (via Catch on any Task state):**
 UpdateStatusFailed (with errorInfo) -> PublishFailureNotification
 
-When any step in the main chain (WriteInitialMetadata, ProcessAudio, SynthesizeSpeech, or UpdateStatusCompleted) throws an error, the `States.ALL` catch handler routes execution to UpdateStatusFailed, which writes the FAILED status and error details to DynamoDB, followed by PublishFailureNotification to alert subscribers.
+When any Task state in the main chain (WriteInitialMetadata, ProcessAudio, SynthesizeSpeech, UpdateStatusCompleted, or PublishSuccessNotification) throws an error, the `States.ALL` catch handler routes execution to UpdateStatusFailed, which writes the FAILED status and error details to DynamoDB, followed by PublishFailureNotification to alert subscribers.
 
 **KMS Encryption:**
 Both SNS topics are encrypted using the AWS-managed SNS key (`alias/aws/sns`), ensuring notification payloads are encrypted at rest without requiring a custom KMS key.
@@ -181,6 +193,40 @@ The state machine role is granted `sns:Publish` only to the specific topic ARNs 
 **Message Payloads:**
 - Success: includes `audioId`, `status` (COMPLETED), and `timestamp`
 - Failure: includes `audioId`, `status` (FAILED), error details, and `timestamp`
+
+## Input Validation
+
+The pipeline implements a two-layer validation approach to reject invalid inputs early and provide clear error reporting.
+
+### Layer 1: Step Functions Choice State (ValidateInput)
+
+The ValidateInput Choice state is the first validation gate, positioned immediately after WriteInitialMetadata. It inspects the S3 object key (`$.detail.object.key`) using StringMatches conditions to verify the file has a supported extension:
+
+- `*.mp3` - MP3 audio format
+- `*.wav` - WAV audio format
+- `*.ogg` - OGG audio format
+- `*.txt` - Text scripts for speech synthesis
+
+If the file extension does not match any supported format, the Choice state routes via its Default path directly to UpdateStatusFailed, bypassing Lambda invocation entirely. This provides fast-fail behavior for clearly invalid inputs without consuming Lambda compute resources.
+
+### Layer 2: Lambda Function Validation (SleepAudioProcessor)
+
+When the Choice state routes to ProcessAudio, the Lambda handler performs detailed validation:
+
+1. **Required fields**: Verifies `detail.bucket.name` and `detail.object.key` exist in the event payload. Raises `ValueError` if missing.
+2. **File extension**: Re-validates the object key ends with a supported extension (`.mp3`, `.wav`, `.ogg`, `.txt`). Raises `ValueError` for unsupported formats.
+3. **Bucket name match**: Compares `detail.bucket.name` against the `INPUT_BUCKET_NAME` environment variable. Raises `ValueError` if the event originates from an unexpected bucket.
+
+If any validation check fails, the Lambda raises an exception that is caught by the state machine's `States.ALL` catch handler, routing to UpdateStatusFailed and then PublishFailureNotification.
+
+### Validation Error Paths
+
+| Validation Failure | Handler | Result |
+|---|---|---|
+| Unsupported file extension | ValidateInput Choice (Default) | UpdateStatusFailed -> PublishFailureNotification |
+| Missing required fields | Lambda ValueError -> Catch | UpdateStatusFailed -> PublishFailureNotification |
+| Invalid bucket name | Lambda ValueError -> Catch | UpdateStatusFailed -> PublishFailureNotification |
+| Processing error (any Task) | Task Catch (States.ALL) | UpdateStatusFailed -> PublishFailureNotification |
 
 ## Data Flow
 
