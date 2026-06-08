@@ -18,8 +18,11 @@ namespace CdkBase
 {
     public class CdkBaseStack : Stack
     {
-        internal CdkBaseStack(Construct scope, string id, IStackProps props = null) : base(scope, id, props)
+        internal CdkBaseStack(Construct scope, string id, IStackProps props = null, string environment = null) : base(scope, id, props)
         {
+            // Environment defaults to "dev" if not specified
+            var env = environment ?? (string)this.Node.TryGetContext("environment") ?? "dev";
+
             // Input S3 Bucket for raw sleep audio uploads
             var inputBucket = new Bucket(this, "SleepAudioInputBucket", new BucketProps
             {

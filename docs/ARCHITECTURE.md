@@ -108,7 +108,18 @@ flowchart LR
 ```
 
 > **Next Steps**: Add dynamic input from S3 events to the Polly task, implement AI enhancement
-> with Bedrock, wire output to the Output S3 Bucket, and add content delivery via CloudFront.
+> with Bedrock, wire output to the Output S3 Bucket, add content delivery via CloudFront,
+> and extend the CDK Pipeline with staging/production stages and manual approval gates.
+
+### Deployment Pipeline (PipelineStack)
+
+A CDK Pipelines construct (`PipelineStack`) has been implemented to automate deployment. It includes:
+- A CodePipeline sourced from a GitHub repository (via CodeStar Connections placeholder).
+- A ShellStep synth stage that builds the .NET solution and produces the Cloud Assembly.
+- An application stage that deploys `CdkBaseStack` into the target AWS account.
+- Self-mutation capability so pipeline changes are automatically applied.
+
+The `Program.cs` entry point reads CDK context (`-c environment=dev|staging|prod`) and passes it to `CdkBaseStack`, enabling environment-specific configuration. The stack defaults to `dev` when no environment is specified, maintaining backward compatibility.
 
 ### Orchestration Layer
 
@@ -379,13 +390,22 @@ Lambda functions are tuned for cost and performance:
 
 ### CDK Context-Based Configuration
 
-The CDK app uses context values to configure environment-specific settings:
+The CDK app reads an `environment` context value from the command line to configure environment-specific settings. This is implemented in `Program.cs`, which reads the context and passes it to `CdkBaseStack`:
 
+```csharp
+// In Program.cs
+var environment = (string)app.Node.TryGetContext("environment") ?? "dev";
+new CdkBaseStack(app, "CdkBaseStack", new StackProps { }, environment: environment);
+```
+
+Usage:
 ```
 cdk deploy -c environment=dev
 cdk deploy -c environment=staging
 cdk deploy -c environment=prod
 ```
+
+The `CdkBaseStack` constructor accepts an optional `environment` parameter (defaulting to `"dev"` if not provided). This enables environment-aware resource configuration while maintaining backward compatibility with tests and deployments that do not specify an environment.
 
 ### Environment Differences
 
@@ -406,6 +426,53 @@ Resources include the environment name as a prefix or suffix to prevent naming c
 - `sleeppipeline-dev-input-bucket`
 - `sleeppipeline-prod-metadata-table`
 - `sleeppipeline-staging-processing-workflow`
+
+## Deployment Pipeline
+
+### CDK Pipelines Construct
+
+The project includes a `PipelineStack` that defines a self-mutating CI/CD pipeline using the CDK Pipelines module (`Amazon.CDK.Pipelines`). This pipeline automates the deployment of the sleep audio infrastructure across environments.
+
+**Pipeline Structure:**
+
+```mermaid
+flowchart LR
+    A[Source: GitHub Repository] --> B[Synth: Build + CDK Synth]
+    B --> C[Self-Mutate Pipeline]
+    C --> D[Deploy: SleepAudioStack]
+```
+
+**Components:**
+- **Source Stage**: Connects to the GitHub repository via AWS CodeStar Connections. Triggers on pushes to the `main` branch.
+- **Synth Step**: A `ShellStep` that installs the CDK CLI, restores .NET dependencies, builds the solution, and runs `npx cdk synth` to produce the CloudFormation template.
+- **Application Stage**: Deploys the `CdkBaseStack` (containing the full sleep audio processing pipeline) into the target environment.
+
+**Key Properties:**
+- Self-mutating: The pipeline updates itself when the pipeline definition changes.
+- Single-stack deployment: The application stage deploys the complete `CdkBaseStack`.
+- Extensible: Additional stages (e.g., staging, production with manual approvals) can be added via `pipeline.AddStage()`.
+
+**Location:** `src/CdkBase/PipelineStack.cs`
+
+### Pipeline Deployment Flow
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant GH as GitHub
+    participant CP as CodePipeline
+    participant CB as CodeBuild (Synth)
+    participant CFN as CloudFormation
+
+    Dev->>GH: Push to main
+    GH->>CP: Trigger pipeline
+    CP->>CB: Run synth step
+    CB->>CB: dotnet build + cdk synth
+    CB->>CP: Cloud Assembly output
+    CP->>CP: Self-mutate (if changed)
+    CP->>CFN: Deploy SleepAudioStack
+    CFN->>CFN: Create/Update resources
+```
 
 ## Future Extensibility
 
