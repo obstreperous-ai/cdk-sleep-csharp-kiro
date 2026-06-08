@@ -32,6 +32,14 @@ namespace CdkBase
 
                 // For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
             }, environment: environment);
+
+            // Conditionally instantiate PipelineStack when pipeline context flag is set.
+            // Usage: npx cdk synth -c pipeline=true
+            if ((string)app.Node.TryGetContext("pipeline") == "true")
+            {
+                new PipelineStack(app, "PipelineStack");
+            }
+
             app.Synth();
         }
     }

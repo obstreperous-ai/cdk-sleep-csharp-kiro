@@ -8,6 +8,14 @@ namespace CdkBase
     {
         internal PipelineStack(Construct scope, string id, IStackProps props = null) : base(scope, id, props)
         {
+            // PLACEHOLDER: Before deploying this pipeline, you must:
+            // 1. Create a CodeStar Connection in the AWS Console for your GitHub account
+            // 2. Replace the connectionArn below with the real ARN from step 1
+            // 3. Update the repository owner from "owner" to your actual GitHub org/user
+            // The placeholder ARN uses a fake account number and will fail at deploy time.
+            var connectionArn = (string)this.Node.TryGetContext("connectionArn")
+                ?? "arn:aws:codestar-connections:us-east-1:123456789012:connection/placeholder";
+
             var pipeline = new CodePipeline(this, "SleepAudioPipeline", new CodePipelineProps
             {
                 PipelineName = "SleepAudioPipeline",
@@ -16,7 +24,7 @@ namespace CdkBase
                     Input = CodePipelineSource.Connection("owner/cdk-sleep-csharp-kiro", "main",
                         new ConnectionSourceOptions
                         {
-                            ConnectionArn = "arn:aws:codestar-connections:us-east-1:123456789012:connection/placeholder"
+                            ConnectionArn = connectionArn
                         }),
                     Commands = new[]
                     {

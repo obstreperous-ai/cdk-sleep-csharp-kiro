@@ -23,6 +23,9 @@ namespace CdkBase
             // Environment defaults to "dev" if not specified
             var env = environment ?? (string)this.Node.TryGetContext("environment") ?? "dev";
 
+            // Tag the stack with the environment name for multi-environment identification
+            Amazon.CDK.Tags.Of(this).Add("Environment", env);
+
             // Input S3 Bucket for raw sleep audio uploads
             var inputBucket = new Bucket(this, "SleepAudioInputBucket", new BucketProps
             {

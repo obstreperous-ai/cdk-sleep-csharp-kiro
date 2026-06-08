@@ -7,6 +7,10 @@ using Xunit;
 
 namespace CdkBase.Tests
 {
+    // Tests use string-matching against serialized CloudFormation templates to assert on
+    // state machine wiring. This couples tests to CDK's JSON serialization order, which is
+    // a known trade-off: it provides strong regression coverage for the current CDK version
+    // at the cost of potential breakage on CDK upgrades that reorder JSON properties.
     public class CdkBaseStackTest
     {
         [Fact]
@@ -1218,6 +1222,49 @@ namespace CdkBase.Tests
             // Assert - stack synthesizes without error
             Assert.NotNull(template);
             template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
+        }
+
+        [Theory]
+        [InlineData("dev")]
+        [InlineData("staging")]
+        [InlineData("prod")]
+        public void Stack_HasEnvironmentTag(string environment)
+        {
+            // Arrange
+            var app = new App(new AppProps
+            {
+                Context = new Dictionary<string, object>
+                {
+                    { "environment", environment }
+                }
+            });
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack", environment: environment);
+            var assembly = app.Synth();
+            var stackArtifact = assembly.GetStackByName(stack.StackName);
+            var tags = stackArtifact.Tags;
+
+            // Assert - verify the Environment tag is set with the correct value
+            Assert.True(tags.ContainsKey("Environment"), "Stack should have an Environment tag");
+            Assert.Equal(environment, tags["Environment"]);
+        }
+
+        [Fact]
+        public void Stack_DefaultsToDevEnvironmentTag()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var assembly = app.Synth();
+            var stackArtifact = assembly.GetStackByName(stack.StackName);
+            var tags = stackArtifact.Tags;
+
+            // Assert - verify the Environment tag defaults to "dev"
+            Assert.True(tags.ContainsKey("Environment"), "Stack should have an Environment tag");
+            Assert.Equal("dev", tags["Environment"]);
         }
     }
 }

@@ -7,6 +7,10 @@ using Xunit;
 
 namespace CdkBase.Tests
 {
+    [CollectionDefinition("Sequential", DisableParallelization = true)]
+    public class SequentialCollection : ICollectionFixture<object> { }
+
+    [Collection("Sequential")]
     public class PipelineStackTest
     {
         [Fact]
