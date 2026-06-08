@@ -1,0 +1,24 @@
+{
+  "project_type": "CDK C# (.NET 8) serverless sleep audio pipeline on AWS",
+  "language": "C#",
+  "build_system": "dotnet CLI + CDK CLI (npx cdk). .NET 9 is installed (project targets net8.0 with RollForward Major). Node 22 available. CDK CLI needs npm install.",
+  "test_framework": "xUnit with Amazon.CDK.Assertions - tests in src/CdkBase.Tests/CdkBaseStackTest.cs",
+  "build_command": "dotnet build src/CdkBase.sln",
+  "test_command": "dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. dotnet restore src/CdkBase.sln, 2. dotnet build src/CdkBase.sln, 3. dotnet test src/CdkBase.sln, 4. npm install -g aws-cdk && npx cdk synth",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "1. dotnet restore src/CdkBase.sln (installs NuGet packages), 2. npm install -g aws-cdk (for cdk synth)",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode - can access package registries. .NET 9 installed (targets net8.0 with RollForward). Node 22 available. No AWS credentials available for actual deployment.",
+  "contribution_requirements": "Strict TDD: write failing tests first, then implement minimal code. Use CDK Assertions (Template.FromStack, HasResourceProperties, ResourceCountIs). Follow architecture-first approach - update ARCHITECTURE.md after changes. Environment config via CDK context. Conventional commit messages.",
+  "key_patterns": "Tests instantiate CdkBaseStack with new App(), get Template.FromStack(stack), then assert on CloudFormation resources. Tests use FindResources + JsonSerializer for detailed inspection, or HasResourceProperties for simple checks. Stack uses single CdkBaseStack class with all constructs. Program.cs creates the app and stack.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase/Program.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md",
+    ".github/workflows/ci.yml",
+    "cdk.json"
+  ],
+  "directory_structure": "Root: cdk.json, README.md. src/CdkBase/ - main CDK app (CdkBaseStack.cs, Program.cs, lambda/process_audio/index.py). src/CdkBase.Tests/ - xUnit tests. docs/ - ARCHITECTURE.md, AGENT_GUIDELINES.md. .github/workflows/ - CI."
+}

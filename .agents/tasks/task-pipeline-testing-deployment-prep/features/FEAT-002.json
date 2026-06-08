@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Expand pipeline test coverage, implement multi-environment support with CDK context, add CDK Pipelines skeleton construct, and update architecture documentation",
+  "status": "pending",
+  "steps": [
+    "Step 1 - Write failing tests for expanded pipeline coverage in src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Add a snapshot-style test that verifies the total resource count of the stack is stable (regression guard). (b) Add test that validates the state machine has exactly 8 states (WriteInitialMetadata, ValidateInput, ProcessAudio, SynthesizeSpeech, UpdateStatusCompleted, UpdateStatusFailed, PublishSuccessNotification, PublishFailureNotification, ValidationFailed). (c) Add test verifying error catch handlers exist on WriteInitialMetadata, ProcessAudio, pollyTask, UpdateStatusCompleted, and PublishSuccessNotification - all routing to UpdateStatusFailed. (d) Add test that PublishFailureNotification is a terminal state (Type: Task, End: true). (e) Add test that PublishSuccessNotification is a terminal state (Type: Task, End: true). (f) Add test verifying the complete success path state transitions from start to end. (g) Add test verifying the complete failure path from ValidationFailed through UpdateStatusFailed to PublishFailureNotification.",
+    "Step 2 - Write failing tests for multi-environment support: (a) Add tests in a new test class (or section) that instantiate CdkBaseStack with CDK context environment=dev, environment=staging, and environment=prod. (b) Test that environment context is read and does not break synthesis (stack synthesizes successfully with each context value). (c) Test that the stack can accept environment-specific configuration (e.g., environment name is accessible). This test should fail initially because Program.cs does not yet pass context or environment config.",
+    "Step 3 - Write failing tests for CDK Pipeline construct: (a) Add a test class or tests for a new PipelineStack that uses aws-cdk-lib pipelines module. (b) Test that PipelineStack synthesizes successfully. (c) Test that PipelineStack contains an AWS::CodePipeline::Pipeline resource. (d) Test that PipelineStack contains at least one stage (the application stage). These tests will fail because PipelineStack does not exist yet.",
+    "Step 4 - Implement multi-environment support: (a) Update src/CdkBase/Program.cs to read CDK context value 'environment' (defaulting to 'dev'). (b) Pass environment name to the CdkBaseStack (either as a prop or via the stack name). (c) Update CdkBaseStack constructor to accept an optional environment parameter that configures environment-specific behavior (at minimum, stack naming). (d) Ensure existing tests still pass (backward compatible - when no environment context is provided, defaults work). (e) Make the new environment-related tests pass.",
+    "Step 5 - Implement CDK Pipelines skeleton: (a) Create src/CdkBase/PipelineStack.cs that defines a CDK Pipeline using Amazon.CDK.Pipelines namespace. (b) The pipeline should have a source stage (GitHub or CodeCommit placeholder) and a synth step. (c) Add an application stage that deploys CdkBaseStack. (d) Make the pipeline tests pass.",
+    "Step 6 - Implement the remaining expanded test coverage: Ensure all pipeline wiring tests from Step 1 pass. If any implementation adjustments are needed to make them pass, make minimal changes to CdkBaseStack.cs.",
+    "Step 7 - Update docs/ARCHITECTURE.md: (a) Add a 'Deployment Pipeline' section describing the CDK Pipelines construct and multi-stage deployment approach. (b) Update the Multi-Environment Support section to reflect the implemented context-based configuration. (c) Update the Mermaid diagram to show the deployment pipeline structure (source -> synth -> deploy stages). (d) Update Current Implementation Status to note the pipeline testing and deployment preparation work.",
+    "Step 8 - Update .github/workflows/ci.yml if needed to add cdk synth with environment context validation (e.g., npx cdk synth -c environment=dev)."
+  ],
+  "acceptance_criteria": [
+    "All new pipeline wiring tests pass (state count, error handler routing, terminal states, complete success/failure paths)",
+    "Multi-environment tests pass: stack synthesizes with -c environment=dev, -c environment=staging, -c environment=prod",
+    "PipelineStack tests pass: PipelineStack synthesizes and contains CodePipeline resource",
+    "All existing tests continue to pass (no regressions)",
+    "dotnet build src/CdkBase.sln succeeds",
+    "dotnet test src/CdkBase.sln passes all tests",
+    "npx cdk synth succeeds",
+    "npx cdk synth -c environment=dev succeeds",
+    "ARCHITECTURE.md is updated with deployment pipeline section and environment details",
+    "CI workflow validates environment context synthesis"
+  ],
+  "verification": [
+    "dotnet build src/CdkBase.sln",
+    "dotnet test src/CdkBase.sln --verbosity normal",
+    "npx cdk synth",
+    "npx cdk synth -c environment=dev",
+    "npx cdk synth -c environment=prod"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
