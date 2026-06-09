@@ -1,0 +1,22 @@
+{
+  "project_type": "AWS CDK with C# (.NET 8) - Infrastructure as Code for a serverless sleep audio pipeline",
+  "language": "C# (.NET 8) for CDK stack, Python 3.12 for Lambda",
+  "build_system": "dotnet CLI with MSBuild. Solution file at src/CdkBase.sln. CDK CLI via npx.",
+  "test_framework": "xunit with Amazon.CDK.Assertions (Template.FromStack, FindResources, HasResourceProperties). Tests use serialized JSON assertion pattern.",
+  "build_command": "NODE_OPTIONS=\"\" dotnet build src/CdkBase.sln",
+  "test_command": "NODE_OPTIONS=\"\" dotnet test src/CdkBase.sln --verbosity minimal",
+  "verification_instructions": "1. Run NODE_OPTIONS=\"\" dotnet test src/CdkBase.sln. 2. Run NODE_OPTIONS=\"\" npx cdk synth (from repo root). 3. Verify ARCHITECTURE.md reflects changes.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "Build environment requires NODE_OPTIONS=\"\" to workaround missing proxy-bootstrap.js. .NET 8 SDK and Node.js 22 are pre-installed.",
+  "environment_constraints": "NODE_OPTIONS must be set to empty string for all dotnet/node commands due to missing /opt/amazon/kiro-agent/proxy-bootstrap.js. Network mode is COMMON_DEPENDENCIES (package registries available). No Docker daemon needed.",
+  "contribution_requirements": "Follow strict TDD: write failing tests first, then implement to make them pass. Use CDK assertions pattern (Template.FromStack). Maintain least-privilege IAM. Use conventional commit messages.",
+  "key_patterns": "Tests use JsonSerializer.Serialize(stateMachines.First().Value) and assert on serialized CloudFormation template content. States are verified by finding their serialized JSON representation. CatchProps/AddCatch pattern used for error handling. CustomState used for Polly (AWS SDK integration). Chain.Start() with .Next() for state machine definition. Options use UnsafeRelaxedJsonEscaping for inner-JSON assertions.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase/lambda/process_audio/index.py",
+    "docs/ARCHITECTURE.md",
+    ".github/workflows/ci.yml"
+  ],
+  "directory_structure": "src/CdkBase/ - CDK stack code. src/CdkBase.Tests/ - xunit tests. src/CdkBase/lambda/process_audio/ - Python Lambda. docs/ - Architecture docs. .github/workflows/ - CI."
+}

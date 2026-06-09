@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.IO;
 using Amazon.CDK;
+using Amazon.CDK.AWS.CloudWatch;
+using Amazon.CDK.AWS.CloudWatch.Actions;
 using Amazon.CDK.AWS.DynamoDB;
 using Amazon.CDK.AWS.Events;
 using Amazon.CDK.AWS.Events.Targets;
@@ -109,7 +111,18 @@ namespace CdkBase
                             { "VoiceId", "Joanna" }
                         }
                     },
-                    { "ResultPath", "$.pollyResult" }
+                    { "ResultPath", "$.pollyResult" },
+                    { "Retry", new object[]
+                        {
+                            new Dictionary<string, object>
+                            {
+                                { "ErrorEquals", new[] { "States.TaskFailed" } },
+                                { "IntervalSeconds", 3 },
+                                { "MaxAttempts", 2 },
+                                { "BackoffRate", 2.0 }
+                            }
+                        }
+                    }
                 }
             });
 
@@ -122,6 +135,7 @@ namespace CdkBase
                 Handler = "index.handler",
                 Code = Code.FromAsset(lambdaAssetPath),
                 Timeout = Duration.Seconds(30),
+                Tracing = Tracing.ACTIVE,
                 Environment = new Dictionary<string, string>
                 {
                     { "TABLE_NAME", metadataTable.TableName },
@@ -221,6 +235,22 @@ namespace CdkBase
                 ResultPath = "$.snsFailResult"
             });
 
+            // Add retry to failure path tasks to handle transient errors
+            updateStatusFailed.AddRetry(new RetryProps
+            {
+                Errors = new[] { "States.ALL" },
+                Interval = Duration.Seconds(1),
+                MaxAttempts = 2,
+                BackoffRate = 2.0
+            });
+            publishFailure.AddRetry(new RetryProps
+            {
+                Errors = new[] { "States.ALL" },
+                Interval = Duration.Seconds(1),
+                MaxAttempts = 2,
+                BackoffRate = 2.0
+            });
+
             // Wire failure path: UpdateStatusFailed -> PublishFailureNotification
             updateStatusFailed.Next(publishFailure);
 
@@ -264,12 +294,32 @@ namespace CdkBase
                 .Next(validateInput);
 
             // Add error handling - catch all errors and transition to UpdateStatusFailed
+            writeInitialMetadata.AddRetry(new RetryProps
+            {
+                Errors = new[] { "States.ALL" },
+                Interval = Duration.Seconds(1),
+                MaxAttempts = 3,
+                BackoffRate = 2.0
+            });
             writeInitialMetadata.AddCatch(updateStatusFailed, new CatchProps
             {
                 Errors = new[] { "States.ALL" },
                 ResultPath = "$.error"
             });
 
+            // Add specific error catches BEFORE States.ALL on processAudioTask
+            processAudioTask.AddRetry(new RetryProps
+            {
+                Errors = new[] { "Lambda.ServiceException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException" },
+                Interval = Duration.Seconds(2),
+                MaxAttempts = 3,
+                BackoffRate = 2.0
+            });
+            processAudioTask.AddCatch(updateStatusFailed, new CatchProps
+            {
+                Errors = new[] { "Lambda.ServiceException", "Lambda.SdkClientException" },
+                ResultPath = "$.error"
+            });
             processAudioTask.AddCatch(updateStatusFailed, new CatchProps
             {
                 Errors = new[] { "States.ALL" },
@@ -282,6 +332,13 @@ namespace CdkBase
                 ResultPath = "$.error"
             });
 
+            updateStatusCompleted.AddRetry(new RetryProps
+            {
+                Errors = new[] { "States.ALL" },
+                Interval = Duration.Seconds(1),
+                MaxAttempts = 3,
+                BackoffRate = 2.0
+            });
             updateStatusCompleted.AddCatch(updateStatusFailed, new CatchProps
             {
                 Errors = new[] { "States.ALL" },
@@ -308,6 +365,7 @@ namespace CdkBase
             });
 
             // Grant Polly permissions to the state machine execution role
+            // Resources: * is required because Polly SynthesizeSpeech does not support resource-level permissions
             stateMachine.AddToRolePolicy(new PolicyStatement(new PolicyStatementProps
             {
                 Actions = new[] { "polly:SynthesizeSpeech" },
@@ -323,6 +381,70 @@ namespace CdkBase
 
             // Wire EventBridge rule to target the state machine
             rule.AddTarget(new SfnStateMachine(stateMachine));
+
+            // CloudWatch Alarm: State Machine Execution Failures
+            var executionFailedMetric = stateMachine.MetricFailed(new Amazon.CDK.AWS.CloudWatch.MetricOptions
+            {
+                Period = Duration.Minutes(1),
+                Statistic = "Sum"
+            });
+            var smAlarm = new Alarm(this, "StateMachineExecutionFailedAlarm", new AlarmProps
+            {
+                Metric = executionFailedMetric,
+                Threshold = 1,
+                EvaluationPeriods = 1,
+                ComparisonOperator = ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                AlarmDescription = "Alarm when state machine execution fails"
+            });
+            smAlarm.AddAlarmAction(new SnsAction(failedTopic));
+
+            // CloudWatch Alarm: Lambda Function Errors
+            var lambdaErrorMetric = processorFunction.MetricErrors(new Amazon.CDK.AWS.CloudWatch.MetricOptions
+            {
+                Period = Duration.Minutes(1),
+                Statistic = "Sum"
+            });
+            var lambdaAlarm = new Alarm(this, "LambdaErrorAlarm", new AlarmProps
+            {
+                Metric = lambdaErrorMetric,
+                Threshold = 1,
+                EvaluationPeriods = 1,
+                ComparisonOperator = ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                AlarmDescription = "Alarm when Lambda function errors occur"
+            });
+            lambdaAlarm.AddAlarmAction(new SnsAction(failedTopic));
+
+            // CloudWatch Dashboard
+            new Dashboard(this, "SleepAudioPipelineDashboard", new DashboardProps
+            {
+                Widgets = new IWidget[][]
+                {
+                    new IWidget[]
+                    {
+                        new GraphWidget(new GraphWidgetProps
+                        {
+                            Title = "State Machine Executions",
+                            Left = new IMetric[]
+                            {
+                                stateMachine.MetricStarted(new Amazon.CDK.AWS.CloudWatch.MetricOptions { Period = Duration.Minutes(5), Statistic = "Sum" }),
+                                stateMachine.MetricSucceeded(new Amazon.CDK.AWS.CloudWatch.MetricOptions { Period = Duration.Minutes(5), Statistic = "Sum" }),
+                                stateMachine.MetricFailed(new Amazon.CDK.AWS.CloudWatch.MetricOptions { Period = Duration.Minutes(5), Statistic = "Sum" })
+                            },
+                            Width = 12
+                        }),
+                        new GraphWidget(new GraphWidgetProps
+                        {
+                            Title = "Lambda Performance",
+                            Left = new IMetric[]
+                            {
+                                processorFunction.MetricInvocations(new Amazon.CDK.AWS.CloudWatch.MetricOptions { Period = Duration.Minutes(5), Statistic = "Sum" }),
+                                processorFunction.MetricErrors(new Amazon.CDK.AWS.CloudWatch.MetricOptions { Period = Duration.Minutes(5), Statistic = "Sum" })
+                            },
+                            Width = 12
+                        })
+                    }
+                }
+            });
         }
 
         private static string GetSourceFilePath([System.Runtime.CompilerServices.CallerFilePath] string path = "")

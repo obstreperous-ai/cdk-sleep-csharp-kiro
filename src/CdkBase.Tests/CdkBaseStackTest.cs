@@ -1049,7 +1049,7 @@ namespace CdkBase.Tests
                 Assert.True(stateIdx >= 0, $"State {stateName} not found in definition");
 
                 // Get a chunk of the definition after this state
-                var chunk = serialized.Substring(stateIdx, System.Math.Min(500, serialized.Length - stateIdx));
+                var chunk = serialized.Substring(stateIdx, System.Math.Min(1200, serialized.Length - stateIdx));
                 Assert.Contains("States.ALL", chunk);
                 Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", chunk);
             }
@@ -1265,6 +1265,201 @@ namespace CdkBase.Tests
             // Assert - verify the Environment tag defaults to "dev"
             Assert.True(tags.ContainsKey("Environment"), "Stack should have an Environment tag");
             Assert.Equal("dev", tags["Environment"]);
+        }
+
+        [Fact]
+        public void Stack_ProcessAudioTaskHasSpecificErrorCatches()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify processAudioTask has catches for Lambda.ServiceException and Lambda.SdkClientException
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            Assert.Contains("Lambda.ServiceException", serialized);
+            Assert.Contains("Lambda.SdkClientException", serialized);
+        }
+
+        [Fact]
+        public void Stack_ProcessAudioTaskHasRetryPolicy()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify processAudioTask has a Retry configuration
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Find ProcessAudio state and verify it has Retry
+            var stateIdx = serialized.IndexOf("\\\"ProcessAudio\\\":{");
+            Assert.True(stateIdx >= 0, "ProcessAudio state not found in definition");
+
+            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            Assert.Contains("Retry", chunk);
+            Assert.Contains("Lambda.ServiceException", chunk);
+            Assert.Contains("Lambda.SdkClientException", chunk);
+            Assert.Contains("Lambda.TooManyRequestsException", chunk);
+        }
+
+        [Fact]
+        public void Stack_PollyTaskHasRetryPolicy()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify pollyTask (SynthesizeSpeech) has Retry configuration
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Find SynthesizeSpeech state and verify it has Retry
+            var stateIdx = serialized.IndexOf("\\\"SynthesizeSpeech\\\":{");
+            Assert.True(stateIdx >= 0, "SynthesizeSpeech state not found in definition");
+
+            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            Assert.Contains("Retry", chunk);
+            Assert.Contains("IntervalSeconds", chunk);
+            Assert.Contains("MaxAttempts", chunk);
+            Assert.Contains("BackoffRate", chunk);
+        }
+
+        [Fact]
+        public void Stack_WriteInitialMetadataHasRetryPolicy()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify writeInitialMetadata has Retry configuration
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Find WriteInitialMetadata state and verify it has Retry
+            var stateIdx = serialized.IndexOf("\\\"WriteInitialMetadata\\\":{");
+            Assert.True(stateIdx >= 0, "WriteInitialMetadata state not found in definition");
+
+            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            Assert.Contains("Retry", chunk);
+            Assert.Contains("States.ALL", chunk);
+        }
+
+        [Fact]
+        public void Stack_UpdateStatusCompletedHasRetryPolicy()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify updateStatusCompleted has Retry configuration
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Find UpdateStatusCompleted state and verify it has Retry
+            var stateIdx = serialized.IndexOf("\\\"UpdateStatusCompleted\\\":{");
+            Assert.True(stateIdx >= 0, "UpdateStatusCompleted state not found in definition");
+
+            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            Assert.Contains("Retry", chunk);
+            Assert.Contains("States.ALL", chunk);
+        }
+
+        [Fact]
+        public void Stack_LambdaFunctionHasXRayTracingEnabled()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the Lambda function has TracingConfig Mode Active
+            var functions = template.FindResources("AWS::Lambda::Function");
+            var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
+
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
+                .GetProperty("Properties");
+
+            var tracingConfig = properties.GetProperty("TracingConfig");
+            var mode = tracingConfig.GetProperty("Mode").GetString();
+            Assert.Equal("Active", mode);
+        }
+
+        [Fact]
+        public void Stack_HasAtLeastTwoCloudWatchAlarms()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify at least 2 CloudWatch Alarms exist
+            var alarms = template.FindResources("AWS::CloudWatch::Alarm");
+            Assert.True(alarms.Count >= 2, $"Expected at least 2 CloudWatch Alarms, found {alarms.Count}");
+        }
+
+        [Fact]
+        public void Stack_HasCloudWatchDashboard()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify exactly 1 CloudWatch Dashboard exists
+            template.ResourceCountIs("AWS::CloudWatch::Dashboard", 1);
         }
     }
 }
