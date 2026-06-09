@@ -1,4 +1,4 @@
-﻿using Amazon.CDK;
+using Amazon.CDK;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,6 +10,10 @@ namespace CdkBase
         public static void Main(string[] args)
         {
             var app = new App();
+
+            // Read environment from CDK context (defaults to "dev")
+            var environment = (string)app.Node.TryGetContext("environment") ?? "dev";
+
             new CdkBaseStack(app, "CdkBaseStack", new StackProps
             {
                 // If you don't specify 'env', this stack will be environment-agnostic.
@@ -26,18 +30,16 @@ namespace CdkBase
                 }
                 */
 
-                // Uncomment the next block if you know exactly what Account and Region you
-                // want to deploy the stack to.
-                /*
-                Env = new Amazon.CDK.Environment
-                {
-                    Account = "123456789012",
-                    Region = "us-east-1",
-                }
-                */
-
                 // For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html
-            });
+            }, environment: environment);
+
+            // Conditionally instantiate PipelineStack when pipeline context flag is set.
+            // Usage: npx cdk synth -c pipeline=true
+            if ((string)app.Node.TryGetContext("pipeline") == "true")
+            {
+                new PipelineStack(app, "PipelineStack");
+            }
+
             app.Synth();
         }
     }

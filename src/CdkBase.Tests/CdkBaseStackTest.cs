@@ -7,6 +7,10 @@ using Xunit;
 
 namespace CdkBase.Tests
 {
+    // Tests use string-matching against serialized CloudFormation templates to assert on
+    // state machine wiring. This couples tests to CDK's JSON serialization order, which is
+    // a known trade-off: it provides strong regression coverage for the current CDK version
+    // at the cost of potential breakage on CDK upgrades that reorder JSON properties.
     public class CdkBaseStackTest
     {
         [Fact]
@@ -965,6 +969,302 @@ namespace CdkBase.Tests
             var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
 
             Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineHasExactlyNineStates()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the state machine has exactly 9 states
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // All 9 expected states must exist
+            var expectedStates = new[]
+            {
+                "WriteInitialMetadata", "ValidateInput", "ProcessAudio",
+                "SynthesizeSpeech", "UpdateStatusCompleted", "UpdateStatusFailed",
+                "PublishSuccessNotification", "PublishFailureNotification", "ValidationFailed"
+            };
+
+            foreach (var state in expectedStates)
+            {
+                Assert.Contains(state, serialized);
+            }
+
+            // Count state Type declarations in the definition string
+            // With UnsafeRelaxedJsonEscaping, the inner JSON string uses backslash-escaped quotes
+            int taskCount = System.Text.RegularExpressions.Regex.Matches(serialized, @"\\""Type\\"":\\""Task\\""").Count;
+            int choiceCount = System.Text.RegularExpressions.Regex.Matches(serialized, @"\\""Type\\"":\\""Choice\\""").Count;
+            int passCount = System.Text.RegularExpressions.Regex.Matches(serialized, @"\\""Type\\"":\\""Pass\\""").Count;
+
+            // Total should be 9: 7 Task + 1 Choice + 1 Pass
+            Assert.Equal(9, taskCount + choiceCount + passCount);
+        }
+
+        [Fact]
+        public void Stack_StateMachineErrorCatchHandlersRouteToUpdateStatusFailed()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify error catch handlers on WriteInitialMetadata, ProcessAudio,
+            // SynthesizeSpeech, UpdateStatusCompleted, and PublishSuccessNotification
+            // all route to UpdateStatusFailed
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            var statesWithCatch = new[]
+            {
+                "WriteInitialMetadata", "ProcessAudio", "SynthesizeSpeech",
+                "UpdateStatusCompleted", "PublishSuccessNotification"
+            };
+
+            foreach (var stateName in statesWithCatch)
+            {
+                // Find the state definition and verify it has a Catch with Next:UpdateStatusFailed
+                var stateIdx = serialized.IndexOf($"\\\"{stateName}\\\":");
+                Assert.True(stateIdx >= 0, $"State {stateName} not found in definition");
+
+                // Get a chunk of the definition after this state
+                var chunk = serialized.Substring(stateIdx, System.Math.Min(500, serialized.Length - stateIdx));
+                Assert.Contains("States.ALL", chunk);
+                Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", chunk);
+            }
+        }
+
+        [Fact]
+        public void Stack_PublishFailureNotificationIsTerminalState()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify PublishFailureNotification has End:true
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Find PublishFailureNotification state and verify End:true
+            var stateIdx = serialized.IndexOf("\\\"PublishFailureNotification\\\":{");
+            Assert.True(stateIdx >= 0, "PublishFailureNotification state not found");
+
+            var chunk = serialized.Substring(stateIdx, System.Math.Min(300, serialized.Length - stateIdx));
+            Assert.Contains("\\\"End\\\":true", chunk);
+            Assert.Contains("\\\"Type\\\":\\\"Task\\\"", chunk);
+        }
+
+        [Fact]
+        public void Stack_PublishSuccessNotificationIsTerminalState()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify PublishSuccessNotification has End:true
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Find PublishSuccessNotification state and verify End:true
+            var stateIdx = serialized.IndexOf("\\\"PublishSuccessNotification\\\":{");
+            Assert.True(stateIdx >= 0, "PublishSuccessNotification state not found");
+
+            var chunk = serialized.Substring(stateIdx, System.Math.Min(300, serialized.Length - stateIdx));
+            Assert.Contains("\\\"End\\\":true", chunk);
+            Assert.Contains("\\\"Type\\\":\\\"Task\\\"", chunk);
+        }
+
+        [Fact]
+        public void Stack_StateMachineCompleteSuccessPath()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the complete success path:
+            // WriteInitialMetadata -> ValidateInput -> ProcessAudio -> SynthesizeSpeech
+            // -> UpdateStatusCompleted -> PublishSuccessNotification (End)
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // Verify StartAt
+            Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", serialized);
+            // WriteInitialMetadata -> ValidateInput
+            Assert.Contains("\\\"WriteInitialMetadata\\\":{\\\"Next\\\":\\\"ValidateInput\\\"", serialized);
+            // ValidateInput routes valid to ProcessAudio (via Choice)
+            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", serialized);
+            // ProcessAudio -> SynthesizeSpeech
+            Assert.Contains("\\\"ProcessAudio\\\":{\\\"Next\\\":\\\"SynthesizeSpeech\\\"", serialized);
+            // SynthesizeSpeech -> UpdateStatusCompleted
+            Assert.Contains("\\\"SynthesizeSpeech\\\":{\\\"Next\\\":\\\"UpdateStatusCompleted\\\"", serialized);
+            // UpdateStatusCompleted -> PublishSuccessNotification
+            Assert.Contains("\\\"UpdateStatusCompleted\\\":{\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+            // PublishSuccessNotification is terminal
+            Assert.Contains("\\\"PublishSuccessNotification\\\":{\\\"End\\\":true", serialized);
+        }
+
+        [Fact]
+        public void Stack_StateMachineCompleteFailurePath()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the failure path from ValidationFailed:
+            // ValidationFailed -> UpdateStatusFailed -> PublishFailureNotification (End)
+            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            Assert.Single(stateMachines);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
+
+            // ValidateInput Default -> ValidationFailed
+            Assert.Contains("\\\"Default\\\":\\\"ValidationFailed\\\"", serialized);
+            // ValidationFailed -> UpdateStatusFailed
+            Assert.Contains("\\\"ValidationFailed\\\":{\\\"Type\\\":\\\"Pass\\\"", serialized);
+            var vfIdx = serialized.IndexOf("\\\"ValidationFailed\\\":{");
+            var vfChunk = serialized.Substring(vfIdx, System.Math.Min(400, serialized.Length - vfIdx));
+            Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", vfChunk);
+            // UpdateStatusFailed -> PublishFailureNotification
+            Assert.Contains("\\\"UpdateStatusFailed\\\":{\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+            // PublishFailureNotification is terminal
+            Assert.Contains("\\\"PublishFailureNotification\\\":{\\\"End\\\":true", serialized);
+        }
+
+        [Theory]
+        [InlineData("dev")]
+        [InlineData("staging")]
+        [InlineData("prod")]
+        public void Stack_SynthesizesSuccessfullyWithEnvironmentContext(string environment)
+        {
+            // Arrange
+            var app = new App(new AppProps
+            {
+                Context = new Dictionary<string, object>
+                {
+                    { "environment", environment }
+                }
+            });
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack", environment: environment);
+            var template = Template.FromStack(stack);
+
+            // Assert - stack synthesizes without error
+            Assert.NotNull(template);
+            template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
+        }
+
+        [Fact]
+        public void Stack_DefaultsToDevEnvironmentWhenNoContextProvided()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act - should work without environment parameter (backward compatible)
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - stack synthesizes without error
+            Assert.NotNull(template);
+            template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
+        }
+
+        [Theory]
+        [InlineData("dev")]
+        [InlineData("staging")]
+        [InlineData("prod")]
+        public void Stack_HasEnvironmentTag(string environment)
+        {
+            // Arrange
+            var app = new App(new AppProps
+            {
+                Context = new Dictionary<string, object>
+                {
+                    { "environment", environment }
+                }
+            });
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack", environment: environment);
+            var assembly = app.Synth();
+            var stackArtifact = assembly.GetStackByName(stack.StackName);
+            var tags = stackArtifact.Tags;
+
+            // Assert - verify the Environment tag is set with the correct value
+            Assert.True(tags.ContainsKey("Environment"), "Stack should have an Environment tag");
+            Assert.Equal(environment, tags["Environment"]);
+        }
+
+        [Fact]
+        public void Stack_DefaultsToDevEnvironmentTag()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var assembly = app.Synth();
+            var stackArtifact = assembly.GetStackByName(stack.StackName);
+            var tags = stackArtifact.Tags;
+
+            // Assert - verify the Environment tag defaults to "dev"
+            Assert.True(tags.ContainsKey("Environment"), "Stack should have an Environment tag");
+            Assert.Equal("dev", tags["Environment"]);
         }
     }
 }

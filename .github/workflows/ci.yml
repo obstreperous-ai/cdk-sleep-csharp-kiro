@@ -37,6 +37,12 @@ jobs:
       - name: CDK Synth
         run: npx cdk synth
 
+      - name: CDK Synth (environment=dev)
+        run: npx cdk synth -c environment=dev
+
+      - name: CDK Synth (environment=prod)
+        run: npx cdk synth -c environment=prod
+
       - name: CDK Diff
         # Advisory only: requires AWS credentials which may not be configured in CI.
         # --no-fail prevents exit code 1 when there are legitimate diffs.
