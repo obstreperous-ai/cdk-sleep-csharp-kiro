@@ -135,6 +135,7 @@ namespace CdkBase
                 Handler = "index.handler",
                 Code = Code.FromAsset(lambdaAssetPath),
                 Timeout = Duration.Seconds(30),
+                MemorySize = 512,
                 Tracing = Tracing.ACTIVE,
                 Environment = new Dictionary<string, string>
                 {

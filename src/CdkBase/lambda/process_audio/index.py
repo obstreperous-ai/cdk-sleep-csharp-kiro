@@ -21,6 +21,10 @@ s3_client = boto3.client("s3")
 
 SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".ogg", ".txt")
 
+# Maximum allowed input file size (100 MB). Files larger than this are rejected
+# before download to avoid Lambda memory/timeout issues.
+MAX_INPUT_FILE_SIZE_BYTES = 100 * 1024 * 1024
+
 
 def _log(level, message, request_id=None, audio_id=None, status=None, error=None, **kwargs):
     """Emit a structured JSON log entry."""
@@ -138,7 +142,12 @@ def _upload_output(output_bucket, output_key, content, content_type):
 
 
 def _update_dynamodb_status(table, audio_id, output_bucket, output_key, file_size, metadata):
-    """Update DynamoDB record with output location and processing metadata."""
+    """Update DynamoDB record with output location and processing metadata.
+
+    Sets status to PROCESSED to indicate the Lambda has finished uploading
+    the output file. This is distinct from PROCESSING (initial state machine
+    status) and COMPLETED (set by downstream UpdateStatusCompleted step).
+    """
     table.update_item(
         Key={"audioId": audio_id},
         UpdateExpression=(
@@ -148,7 +157,7 @@ def _update_dynamodb_status(table, audio_id, output_bucket, output_key, file_siz
         ),
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={
-            ":status": "PROCESSING_AUDIO",
+            ":status": "PROCESSED",
             ":outputBucket": output_bucket,
             ":outputKey": output_key,
             ":fileSize": file_size,
@@ -223,6 +232,19 @@ def handler(event, context):
     table = dynamodb.Table(table_name)
 
     try:
+        # Step 0: Pre-flight size check to reject oversized files before download
+        head_response = s3_client.head_object(Bucket=bucket_name, Key=audio_id)
+        input_file_size = head_response.get("ContentLength", 0)
+
+        if input_file_size > MAX_INPUT_FILE_SIZE_BYTES:
+            _log("error", "Input file exceeds maximum allowed size",
+                 request_id=request_id, audio_id=audio_id, status="ERROR",
+                 input_size=input_file_size, max_size=MAX_INPUT_FILE_SIZE_BYTES)
+            raise ValueError(
+                f"Input file size ({input_file_size} bytes) exceeds maximum "
+                f"allowed size ({MAX_INPUT_FILE_SIZE_BYTES} bytes)"
+            )
+
         _log("info", "Downloading input from S3", request_id=request_id, audio_id=audio_id,
              status="DOWNLOADING", bucket=bucket_name)
 
@@ -254,11 +276,23 @@ def handler(event, context):
              status="UPLOADED", output_bucket=output_bucket_name, output_key=output_key)
 
         # Step 4: Update DynamoDB with output metadata
+        # If DynamoDB update fails after a successful S3 upload, the output object
+        # becomes orphaned (no DynamoDB record points to it). We log the output key
+        # in a structured error entry so orphaned objects are discoverable via
+        # CloudWatch Logs Insights queries. A periodic cleanup job or S3 lifecycle
+        # policy should handle removal of orphaned objects.
         file_size = len(processed_content)
-        _update_dynamodb_status(table, audio_id, output_bucket_name, output_key, file_size, processing_metadata)
+        try:
+            _update_dynamodb_status(table, audio_id, output_bucket_name, output_key, file_size, processing_metadata)
+        except Exception as dynamo_err:
+            _log("error", "DynamoDB update failed after successful S3 upload; output object is orphaned",
+                 request_id=request_id, audio_id=audio_id, status="ORPHANED_OUTPUT",
+                 error=str(dynamo_err), output_bucket=output_bucket_name, output_key=output_key,
+                 file_size=file_size)
+            raise
 
         _log("info", "DynamoDB updated with output metadata", request_id=request_id,
-             audio_id=audio_id, status="PROCESSING_AUDIO")
+             audio_id=audio_id, status="PROCESSED")
 
         # Step 5: Return structured response for downstream state machine steps
         response = {
@@ -268,7 +302,7 @@ def handler(event, context):
                 "inputBucket": bucket_name,
                 "outputBucket": output_bucket_name,
                 "outputKey": output_key,
-                "status": "PROCESSING_AUDIO",
+                "status": "PROCESSED",
                 "fileSize": file_size,
                 "metadata": processing_metadata,
                 "message": "Audio processed and uploaded successfully",
@@ -276,7 +310,7 @@ def handler(event, context):
         }
 
         _log("info", "Processing complete", request_id=request_id, audio_id=audio_id,
-             status="PROCESSING_AUDIO", output_key=output_key, file_size=file_size)
+             status="PROCESSED", output_key=output_key, file_size=file_size)
 
         return response
 

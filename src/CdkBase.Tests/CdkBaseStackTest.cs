@@ -1494,12 +1494,25 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify IAM policies grant s3:GetObject to the Lambda role
+            // Assert - verify the Lambda execution role's policy contains s3:GetObject
+            // scoped to the input bucket ARN (not just any policy in the stack)
             var policies = template.FindResources("AWS::IAM::Policy");
-            var policiesJson = JsonSerializer.Serialize(policies);
 
-            Assert.Contains("s3:GetObject", policiesJson);
-            Assert.Contains("s3:GetBucket", policiesJson);
+            // Find the policy attached to the Lambda execution role
+            var lambdaPolicyEntry = policies.First(p =>
+            {
+                var json = JsonSerializer.Serialize(p.Value);
+                return json.Contains("SleepAudioProcessorFunction") && json.Contains("s3:GetObject");
+            });
+
+            var policyJson = JsonSerializer.Serialize(lambdaPolicyEntry.Value);
+
+            // Verify the policy contains s3:GetObject action
+            Assert.Contains("s3:GetObject", policyJson);
+            Assert.Contains("s3:GetBucket", policyJson);
+
+            // Verify the policy resource references the input bucket (SleepAudioInputBucket)
+            Assert.Contains("SleepAudioInputBucket", policyJson);
         }
 
         [Fact]
@@ -1512,12 +1525,25 @@ namespace CdkBase.Tests
             var stack = new CdkBaseStack(app, "TestStack");
             var template = Template.FromStack(stack);
 
-            // Assert - verify IAM policies grant s3:PutObject to the Lambda role
+            // Assert - verify the Lambda execution role's policy contains s3:PutObject
+            // scoped to the output bucket ARN (not just any policy in the stack)
             var policies = template.FindResources("AWS::IAM::Policy");
-            var policiesJson = JsonSerializer.Serialize(policies);
 
-            Assert.Contains("s3:PutObject", policiesJson);
-            Assert.Contains("s3:Abort", policiesJson);
+            // Find the policy attached to the Lambda execution role
+            var lambdaPolicyEntry = policies.First(p =>
+            {
+                var json = JsonSerializer.Serialize(p.Value);
+                return json.Contains("SleepAudioProcessorFunction") && json.Contains("s3:PutObject");
+            });
+
+            var policyJson = JsonSerializer.Serialize(lambdaPolicyEntry.Value);
+
+            // Verify the policy contains s3:PutObject action
+            Assert.Contains("s3:PutObject", policyJson);
+            Assert.Contains("s3:Abort", policyJson);
+
+            // Verify the policy resource references the output bucket (SleepAudioOutputBucket)
+            Assert.Contains("SleepAudioOutputBucket", policyJson);
         }
     }
 }
