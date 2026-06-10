@@ -1,0 +1,38 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add advanced error handling with specific Catch blocks, retry policies, X-Ray tracing on Lambda, structured logging in Lambda, CloudWatch Alarms, and a basic CloudWatch Dashboard. Follows strict TDD: write failing tests first, then implement to pass them. Update ARCHITECTURE.md at the end.",
+  "status": "completed",
+  "steps": [
+    "Step 1: Write new failing tests in src/CdkBase.Tests/CdkBaseStackTest.cs for: (a) Specific error type catches - verify that processAudioTask (LambdaInvoke) has a Catch block for 'Lambda.ServiceException' and 'Lambda.SdkClientException' in ADDITION to 'States.ALL'; verify pollyTask (CustomState) has catches for 'States.TaskFailed' errors; (b) Retry policies - verify processAudioTask has a Retry configuration with IntervalSeconds, MaxAttempts, and BackoffRate; verify pollyTask (SynthesizeSpeech CustomState JSON) contains Retry configuration; verify writeInitialMetadata and updateStatusCompleted DynamoDB tasks have Retry configurations; (c) X-Ray tracing on Lambda - verify the Lambda function has TracingConfig with Mode=Active (resource type AWS::Lambda::Function should have TracingConfig.Mode = Active); (d) CloudWatch Alarms - verify at least 2 CloudWatch Alarms exist (AWS::CloudWatch::Alarm) covering state machine execution failures and Lambda errors; (e) CloudWatch Dashboard - verify exactly 1 AWS::CloudWatch::Dashboard resource exists.",
+    "Step 2: Run tests to confirm they all fail (TDD red phase). Command: NODE_OPTIONS='' dotnet test src/CdkBase.sln --verbosity minimal",
+    "Step 3: Implement advanced error handling in src/CdkBase/CdkBaseStack.cs. Add specific error Catch blocks BEFORE the States.ALL catch on processAudioTask: catch 'Lambda.ServiceException' and 'Lambda.SdkClientException' with ResultPath '$.error' routing to updateStatusFailed. For the pollyTask CustomState, update the StateJson to include both Retry (with backoff) and Catch arrays for 'States.TaskFailed'. Keep existing States.ALL catches as the final fallback.",
+    "Step 4: Implement retry policies in src/CdkBase/CdkBaseStack.cs. Add processAudioTask.AddRetry() with IntervalSeconds=2, MaxAttempts=3, BackoffRate=2.0, Errors=['Lambda.ServiceException','Lambda.SdkClientException','Lambda.TooManyRequestsException']. Add writeInitialMetadata.AddRetry() and updateStatusCompleted.AddRetry() with IntervalSeconds=1, MaxAttempts=3, BackoffRate=2.0, Errors=['States.ALL']. For pollyTask (CustomState), embed Retry configuration directly in the StateJson dict with IntervalSeconds=3, MaxAttempts=2, BackoffRate=2.0.",
+    "Step 5: Enable X-Ray tracing on the Lambda function in src/CdkBase/CdkBaseStack.cs. Add Tracing = Tracing.ACTIVE to the FunctionProps of processorFunction.",
+    "Step 6: Add CloudWatch Alarms in src/CdkBase/CdkBaseStack.cs. Import Amazon.CDK.AWS.CloudWatch. Create an alarm on the state machine ExecutionsFailed metric (threshold >= 1, evaluation period 1 minute). Create an alarm on the Lambda function Errors metric (threshold >= 1, evaluation period 1 minute). Optionally wire alarm actions to the failedTopic SNS.",
+    "Step 7: Add a basic CloudWatch Dashboard in src/CdkBase/CdkBaseStack.cs. Import Amazon.CDK.AWS.CloudWatch. Create a Dashboard with widgets showing: state machine executions (started, succeeded, failed), Lambda invocations and errors, and DynamoDB consumed read/write capacity.",
+    "Step 8: Update the Lambda handler src/CdkBase/lambda/process_audio/index.py to use structured JSON logging. Replace the basic logger.info/error calls with JSON-formatted log entries that include request_id (from context.aws_request_id), audio_id, status, and structured error details.",
+    "Step 9: Run all tests to confirm they pass (TDD green phase). Command: NODE_OPTIONS='' dotnet test src/CdkBase.sln --verbosity minimal",
+    "Step 10: Run CDK synth to confirm synthesis succeeds. Command: NODE_OPTIONS='' npx cdk synth",
+    "Step 11: Update docs/ARCHITECTURE.md to document: (a) the advanced error handling strategy with specific error type catches, (b) the retry policy configuration, (c) X-Ray tracing on Lambda, (d) structured logging in Lambda, (e) CloudWatch Alarms and Dashboard. Update the Mermaid diagram to show retry loops and observability components (alarms, dashboard).",
+    "Step 12: Commit all changes with conventional commit message: feat: add advanced error handling, retry policies, and observability improvements"
+  ],
+  "acceptance_criteria": [
+    "All new tests pass verifying specific error Catch blocks (Lambda.ServiceException, Lambda.SdkClientException, States.TaskFailed)",
+    "All new tests pass verifying retry policies on processAudioTask, pollyTask, writeInitialMetadata, and updateStatusCompleted",
+    "Test passes verifying Lambda TracingConfig Mode is Active",
+    "Tests pass verifying at least 2 CloudWatch Alarms exist",
+    "Test passes verifying 1 CloudWatch Dashboard exists",
+    "Lambda handler uses JSON structured logging with request_id and status fields",
+    "NODE_OPTIONS='' dotnet test src/CdkBase.sln passes all tests (new and existing)",
+    "NODE_OPTIONS='' npx cdk synth succeeds without errors",
+    "ARCHITECTURE.md reflects the new error handling, retry, and observability features with updated Mermaid diagram",
+    "Changes are committed with a conventional commit message"
+  ],
+  "verification": [
+    "NODE_OPTIONS='' dotnet test src/CdkBase.sln --verbosity minimal",
+    "NODE_OPTIONS='' npx cdk synth"
+  ],
+  "blocked_reason": null,
+  "findings": "Existing test Stack_StateMachineErrorCatchHandlersRouteToUpdateStatusFailed needed its chunk size increased from 500 to 1200 characters because the added retry policies and specific error catches on ProcessAudio pushed the States.ALL catch beyond the original 500-char window. All 70 tests pass. CDK synth succeeds. Review iteration 2: Added AlarmActions via AddAlarmAction(new SnsAction(failedTopic)) on both alarms (AlarmProps does not have AlarmActions property in CDK .NET, must use the method instead). Added retry with States.ALL to updateStatusFailed and publishFailure. Added code comment for Polly IAM Resources: *. Removed event payload from first _log call in Lambda handler."
+}

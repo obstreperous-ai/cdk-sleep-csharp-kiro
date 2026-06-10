@@ -474,6 +474,84 @@ sequenceDiagram
     CFN->>CFN: Create/Update resources
 ```
 
+## Advanced Error Handling and Retry Policies
+
+The pipeline implements multi-layered error handling with specific error catches and configurable retry policies to improve resilience and reduce unnecessary failures.
+
+### Specific Error Catches
+
+In addition to the general `States.ALL` catch-all on each Task state, the ProcessAudio (LambdaInvoke) step includes specific error catches for known transient Lambda errors:
+
+- **Lambda.ServiceException**: Caught and routed to UpdateStatusFailed. Indicates an internal AWS Lambda service issue.
+- **Lambda.SdkClientException**: Caught and routed to UpdateStatusFailed. Indicates a client-side SDK connectivity issue.
+
+These specific catches appear **before** the `States.ALL` fallback, allowing targeted handling of known error types while still catching unexpected errors.
+
+### Retry Policies
+
+Retry policies are configured on multiple Task states to handle transient failures automatically:
+
+| Task State | Retried Errors | Interval | Max Attempts | Backoff Rate |
+|---|---|---|---|---|
+| ProcessAudio (LambdaInvoke) | Lambda.ServiceException, Lambda.SdkClientException, Lambda.TooManyRequestsException | 2s | 3 | 2.0 |
+| SynthesizeSpeech (Polly) | States.TaskFailed | 3s | 2 | 2.0 |
+| WriteInitialMetadata (DynamoDB) | States.ALL | 1s | 3 | 2.0 |
+| UpdateStatusCompleted (DynamoDB) | States.ALL | 1s | 3 | 2.0 |
+
+Retries occur before the Catch block is evaluated. If all retry attempts are exhausted, execution transitions to the Catch handler (UpdateStatusFailed).
+
+```mermaid
+flowchart TD
+    subgraph RetryBehavior["Retry Flow (per Task)"]
+        A[Task Execution] -->|Transient Error| B{Retry Limit Reached?}
+        B -->|No| C[Wait with Exponential Backoff]
+        C --> A
+        B -->|Yes| D[Catch Handler: UpdateStatusFailed]
+    end
+```
+
+### X-Ray Tracing
+
+AWS X-Ray active tracing is enabled on the Lambda function (`TracingConfig.Mode = Active`). Combined with the state machine's existing tracing (`TracingEnabled = true`), this provides end-to-end distributed tracing across the entire pipeline.
+
+### Structured Logging
+
+The Lambda handler uses structured JSON logging that includes:
+- `request_id`: The Lambda invocation request ID for correlation
+- `audio_id`: The audio file being processed
+- `status`: Current processing status (RECEIVED, PROCESSING, PROCESSING_AUDIO, ERROR)
+- `error`: Error details when failures occur
+
+This enables CloudWatch Logs Insights queries for filtering and analysis.
+
+## CloudWatch Observability
+
+### CloudWatch Alarms
+
+Two CloudWatch Alarms monitor pipeline health:
+
+| Alarm | Metric | Threshold | Period | Description |
+|---|---|---|---|---|
+| StateMachineExecutionFailedAlarm | ExecutionsFailed (Sum) | >= 1 | 1 minute | Fires when any state machine execution fails |
+| LambdaErrorAlarm | Errors (Sum) | >= 1 | 1 minute | Fires when Lambda function errors occur |
+
+### CloudWatch Dashboard
+
+A dashboard (`SleepAudioPipelineDashboard`) provides at-a-glance visibility into pipeline health with the following widgets:
+
+- **State Machine Executions**: Graph of executions started, succeeded, and failed over time
+- **Lambda Performance**: Graph of Lambda invocations and errors over time
+
+```mermaid
+flowchart LR
+    subgraph Observability
+        SM[State Machine] -->|Metrics| CW[CloudWatch]
+        LF[Lambda Function] -->|Metrics| CW
+        CW -->|Threshold Breach| AL[CloudWatch Alarms]
+        CW -->|Visualize| DB[CloudWatch Dashboard]
+    end
+```
+
 ## Future Extensibility
 
 The event-driven architecture supports extension without modifying existing components:
