@@ -1461,5 +1461,63 @@ namespace CdkBase.Tests
             // Assert - verify exactly 1 CloudWatch Dashboard exists
             template.ResourceCountIs("AWS::CloudWatch::Dashboard", 1);
         }
+
+        [Fact]
+        public void Stack_LambdaFunctionHasOutputBucketEnvironmentVariable()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the Lambda function has OUTPUT_BUCKET_NAME environment variable
+            var functions = template.FindResources("AWS::Lambda::Function");
+            var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
+
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
+                .GetProperty("Properties");
+
+            var envVars = properties.GetProperty("Environment").GetProperty("Variables");
+            Assert.True(envVars.TryGetProperty("OUTPUT_BUCKET_NAME", out _),
+                "Lambda function is missing OUTPUT_BUCKET_NAME environment variable");
+        }
+
+        [Fact]
+        public void Stack_LambdaExecutionRoleHasS3GetObjectOnInputBucket()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify IAM policies grant s3:GetObject to the Lambda role
+            var policies = template.FindResources("AWS::IAM::Policy");
+            var policiesJson = JsonSerializer.Serialize(policies);
+
+            Assert.Contains("s3:GetObject", policiesJson);
+            Assert.Contains("s3:GetBucket", policiesJson);
+        }
+
+        [Fact]
+        public void Stack_LambdaExecutionRoleHasS3PutObjectOnOutputBucket()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify IAM policies grant s3:PutObject to the Lambda role
+            var policies = template.FindResources("AWS::IAM::Policy");
+            var policiesJson = JsonSerializer.Serialize(policies);
+
+            Assert.Contains("s3:PutObject", policiesJson);
+            Assert.Contains("s3:Abort", policiesJson);
+        }
     }
 }

@@ -1,0 +1,7 @@
+{
+  "task_id": "task-core-audio-processing-output",
+  "task_description": "Implement core audio processing logic in the Lambda handler (download from S3, process/generate audio, upload to output bucket, update DynamoDB with output metadata) and add required S3 permissions in CDK following strict TDD. Update ARCHITECTURE.md to reflect the now-functional pipeline.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

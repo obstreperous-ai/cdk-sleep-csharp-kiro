@@ -39,7 +39,7 @@ namespace CdkBase
             });
 
             // Output S3 Bucket for processed sleep audio
-            new Bucket(this, "SleepAudioOutputBucket", new BucketProps
+            var outputBucket = new Bucket(this, "SleepAudioOutputBucket", new BucketProps
             {
                 Encryption = BucketEncryption.KMS_MANAGED,
                 Versioned = true,
@@ -139,12 +139,19 @@ namespace CdkBase
                 Environment = new Dictionary<string, string>
                 {
                     { "TABLE_NAME", metadataTable.TableName },
-                    { "INPUT_BUCKET_NAME", inputBucket.BucketName }
+                    { "INPUT_BUCKET_NAME", inputBucket.BucketName },
+                    { "OUTPUT_BUCKET_NAME", outputBucket.BucketName }
                 }
             });
 
             // Grant the Lambda DynamoDB read/write access
             metadataTable.GrantReadWriteData(processorFunction);
+
+            // Grant the Lambda S3 read access on the input bucket (download input files)
+            inputBucket.GrantRead(processorFunction);
+
+            // Grant the Lambda S3 write access on the output bucket (upload processed files)
+            outputBucket.GrantWrite(processorFunction);
 
             // LambdaInvoke task for ProcessAudio step in the state machine
             var processAudioTask = new LambdaInvoke(this, "ProcessAudio", new LambdaInvokeProps

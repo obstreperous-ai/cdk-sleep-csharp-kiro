@@ -1,0 +1,22 @@
+{
+  "project_type": "CDK C# (.NET 8) Infrastructure as Code project with Python Lambda",
+  "language": "C# (CDK stack), Python (Lambda handler)",
+  "build_system": "dotnet (MSBuild) + CDK CLI (npx cdk). NODE_OPTIONS must be cleared for tests to pass: NODE_OPTIONS=\"\" before dotnet test and npx cdk commands",
+  "test_framework": "xUnit with Amazon.CDK.Assertions. Tests verify synthesized CloudFormation templates.",
+  "build_command": "NODE_OPTIONS=\"\" dotnet build src/CdkBase.sln --no-restore",
+  "test_command": "NODE_OPTIONS=\"\" dotnet test src/CdkBase.Tests/CdkBase.Tests.csproj --verbosity normal",
+  "verification_instructions": "1. Run dotnet restore, 2. Run dotnet build, 3. Run dotnet test (all 70+ tests must pass), 4. Run npx cdk synth (must succeed)",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "dotnet restore src/CdkBase.sln && NODE_OPTIONS=\"\" dotnet build src/CdkBase.sln --no-restore",
+  "environment_constraints": "NODE_OPTIONS env var must be unset/cleared for JSII runtime to work (proxy-bootstrap.js conflict). Use NODE_OPTIONS=\"\" prefix on all dotnet test and npx cdk commands. Network mode is COMMON_DEPENDENCIES - package registry access available.",
+  "contribution_requirements": "Strict TDD: write failing tests first, then implement. Use conventional commits. Update ARCHITECTURE.md after changes. Follow least-privilege IAM principles.",
+  "key_patterns": "Tests create App/Stack/Template and use template.FindResources/HasResourceProperties with serialized JSON assertions. CDK stack defines all AWS resources. Lambda handler at src/CdkBase/lambda/process_audio/index.py. Output bucket currently not assigned to a variable or passed to Lambda.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase/lambda/process_audio/index.py",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md"
+  ],
+  "directory_structure": "Root: cdk.json, src/CdkBase/ (CDK stack code + lambda/), src/CdkBase.Tests/ (xUnit tests), docs/ (architecture + guidelines), .github/workflows/ci.yml"
+}

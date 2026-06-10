@@ -79,7 +79,7 @@ The following components from the target architecture have been implemented in t
 
 - **ValidateInput Choice State**: A Step Functions Choice state positioned between WriteInitialMetadata and ProcessAudio that validates the uploaded file extension. Checks `$.detail.object.key` using StringMatches conditions for supported formats (`.mp3`, `.wav`, `.ogg`, `.txt`). Valid extensions route to ProcessAudio; invalid extensions (Default path) route to UpdateStatusFailed -> PublishFailureNotification.
 
-- **SleepAudioProcessor Lambda Function (SleepAudioProcessorFunction)**: Python 3.12 Lambda function that processes audio metadata between input validation and Polly synthesis. Performs two-layer input validation: verifies required fields (`detail.bucket.name`, `detail.object.key`), checks file extension against supported formats, and validates bucket name matches the expected input bucket. Configured with a 30-second timeout and environment variables `TABLE_NAME` (DynamoDB metadata table) and `INPUT_BUCKET_NAME` (expected source bucket for validation). Granted DynamoDB read/write permissions via `metadataTable.GrantReadWriteData`. The state machine invokes this function using a LambdaInvoke task with error handling (Catch for `States.ALL` routing to `UpdateStatusFailed`).
+- **SleepAudioProcessor Lambda Function (SleepAudioProcessorFunction)**: Python 3.12 Lambda function that performs the core audio processing between input validation and Polly synthesis. Implements the full processing pipeline: downloads input from the Input S3 Bucket, processes content (text preparation for TTS or audio pass-through with metadata enrichment), uploads processed output to the Output S3 Bucket with a structured naming convention (`processed/{baseKey}_{timestamp}_{uuid}.mp3`), and updates the DynamoDB metadata record with output location, file size, and processing metadata. Performs two-layer input validation: verifies required fields (`detail.bucket.name`, `detail.object.key`), checks file extension against supported formats, and validates bucket name matches the expected input bucket. Configured with a 30-second timeout and environment variables `TABLE_NAME` (DynamoDB metadata table), `INPUT_BUCKET_NAME` (expected source bucket for validation), and `OUTPUT_BUCKET_NAME` (destination bucket for processed output). Granted DynamoDB read/write permissions via `metadataTable.GrantReadWriteData`, S3 read permissions on the input bucket via `inputBucket.GrantRead`, and S3 write permissions on the output bucket via `outputBucket.GrantWrite`. The state machine invokes this function using a LambdaInvoke task with error handling (Catch for `States.ALL` routing to `UpdateStatusFailed`). Returns a structured response including audioId, outputBucket, outputKey, status, fileSize, and processing metadata for use by downstream state machine steps.
 
 - **SNS Completed Topic (SleepAudioPipelineCompleted)**: Encrypted with AWS-managed SNS KMS key (alias/aws/sns). Receives notification when pipeline processing completes successfully. Message includes audioId, status, and timestamp.
 
@@ -96,7 +96,9 @@ flowchart LR
     C -->|WriteInitialMetadata| D[DynamoDB Metadata Table]
     C -->|ValidateInput| V{Choice: File Extension?}
     V -->|Valid: .mp3/.wav/.ogg/.txt| I[SleepAudioProcessor Lambda]
-    I -->|Update Status| D
+    I -->|Download Input| A
+    I -->|Upload Processed Output| F[Output S3 Bucket]
+    I -->|Update Status + Output Metadata| D
     V -->|Invalid: Default| UF[UpdateStatusFailed]
     UF -->|Update Status FAILED| D
     UF --> H[SNS Failed Topic]
@@ -104,7 +106,6 @@ flowchart LR
     E --> UC[UpdateStatusCompleted]
     UC -->|Update Status COMPLETED| D
     UC --> G[SNS Completed Topic]
-    F[Output S3 Bucket]
 ```
 
 > **Next Steps**: Add dynamic input from S3 events to the Polly task, implement AI enhancement
@@ -136,6 +137,8 @@ The Step Functions state machine serves as the central orchestration engine for 
 
 **SleepAudioProcessor Lambda Execution Role:**
 - `dynamodb:BatchGetItem`, `dynamodb:GetItem`, `dynamodb:Query`, `dynamodb:Scan`, `dynamodb:BatchWriteItem`, `dynamodb:PutItem`, `dynamodb:UpdateItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable`, `dynamodb:GetRecords`, `dynamodb:GetShardIterator`, `dynamodb:ConditionCheckItem` on the metadata table (granted via `metadataTable.GrantReadWriteData`)
+- `s3:GetObject`, `s3:GetBucket*`, `s3:List*` on the input bucket and its objects (granted via `inputBucket.GrantRead`)
+- `s3:PutObject`, `s3:PutObjectLegalHold`, `s3:PutObjectRetention`, `s3:PutObjectTagging`, `s3:PutObjectVersionTagging`, `s3:Abort*`, `s3:DeleteObject*` on the output bucket and its objects (granted via `outputBucket.GrantWrite`)
 - CloudWatch Logs permissions for writing function execution logs (automatically granted by CDK)
 
 **Logging and Tracing Strategy**: Execution logging is configured at level ALL with `IncludeExecutionData = true`, capturing full state input/output for debugging. The log group has a 14-day retention policy. X-Ray tracing is enabled for end-to-end request tracking across the pipeline.
@@ -148,9 +151,13 @@ The DynamoDB metadata table (`SleepAudioMetadataTable`) provides a durable recor
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `audioId` (PK) | String | The S3 object key of the uploaded audio file |
-| `status` | String | Processing status: `PROCESSING`, `COMPLETED`, or `FAILED` |
+| `status` | String | Processing status: `PROCESSING`, `PROCESSING_AUDIO`, `COMPLETED`, or `FAILED` |
 | `inputBucket` | String | Source S3 bucket name |
 | `inputKey` | String | Source S3 object key |
+| `outputBucket` | String | Destination S3 bucket name for processed output |
+| `outputKey` | String | S3 key of the processed output file (e.g., `processed/{base}_{ts}_{uuid}.mp3`) |
+| `fileSize` | Number | Size in bytes of the processed output file |
+| `processingMetadata` | String (JSON) | JSON-encoded processing details (sourceFormat, outputFormat, processingType, etc.) |
 | `createdAt` | String | ISO 8601 timestamp when processing started |
 | `updatedAt` | String | ISO 8601 timestamp of the last status change |
 | `errorInfo` | String | Error cause details (present only when status is `FAILED`) |
@@ -164,7 +171,7 @@ The DynamoDB metadata table (`SleepAudioMetadataTable`) provides a durable recor
 **State Machine Integration:**
 1. **WriteInitialMetadata** (DynamoPutItem): Before processing begins, writes an initial record with status `PROCESSING`, capturing the input bucket, key, and creation timestamp.
 2. **ValidateInput** (Choice): Checks the file extension of `$.detail.object.key` using StringMatches conditions. Supported extensions (`.mp3`, `.wav`, `.ogg`, `.txt`) route to ProcessAudio. Unsupported extensions (Default) route to UpdateStatusFailed.
-3. **ProcessAudio** (LambdaInvoke): Invokes the SleepAudioProcessor Lambda to validate required fields, check file extension, verify bucket name, update status to `PROCESSING_AUDIO`, and enrich metadata. Passes the full state machine payload to the function.
+3. **ProcessAudio** (LambdaInvoke): Invokes the SleepAudioProcessor Lambda which downloads the input file from S3, processes it (text preparation for TTS or audio pass-through with metadata enrichment), uploads the processed output to the Output S3 Bucket, and updates DynamoDB with output location (outputBucket, outputKey), file size, and processing metadata. Returns a structured response to `$.processAudioResult` with audioId, outputBucket, outputKey, status, fileSize, and metadata.
 4. **SynthesizeSpeech** (Polly): Performs the audio synthesis task.
 5. **UpdateStatusCompleted** (DynamoUpdateItem): On success, updates the record status to `COMPLETED` with an `updatedAt` timestamp.
 6. **PublishSuccessNotification** (SnsPublish): Publishes a completion notification to the SNS Completed topic with audioId, status, and timestamp.
@@ -519,8 +526,9 @@ AWS X-Ray active tracing is enabled on the Lambda function (`TracingConfig.Mode 
 The Lambda handler uses structured JSON logging that includes:
 - `request_id`: The Lambda invocation request ID for correlation
 - `audio_id`: The audio file being processed
-- `status`: Current processing status (RECEIVED, PROCESSING, PROCESSING_AUDIO, ERROR)
+- `status`: Current processing status (RECEIVED, DOWNLOADING, DOWNLOADED, PROCESSING, PROCESSED, UPLOADING, UPLOADED, PROCESSING_AUDIO, ERROR)
 - `error`: Error details when failures occur
+- Additional context fields: `bucket`, `input_size`, `output_size`, `output_bucket`, `output_key`, `file_size`, `extension`
 
 This enables CloudWatch Logs Insights queries for filtering and analysis.
 

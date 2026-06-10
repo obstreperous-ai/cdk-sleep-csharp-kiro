@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Implement core audio processing logic in Lambda, add S3 read/write permissions in CDK, pass OUTPUT_BUCKET_NAME env var, and wire Lambda output back through the state machine. This follows strict TDD: write failing CDK tests first (verifying S3 permissions and OUTPUT_BUCKET_NAME env var), then implement the CDK changes (assign output bucket to variable, grant S3 read on input bucket and write on output bucket to Lambda, add OUTPUT_BUCKET_NAME env var), then update the Lambda handler to download from S3, process/generate audio, upload to output bucket, and update DynamoDB with output metadata.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1 - Write failing CDK tests in src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Test that Lambda has OUTPUT_BUCKET_NAME environment variable, (b) Test that Lambda execution role has s3:GetObject permission on the input bucket, (c) Test that Lambda execution role has s3:PutObject permission on the output bucket. Follow the existing test pattern using template.FindResources and JsonSerializer assertions.",
+    "Step 2 - Update src/CdkBase/CdkBaseStack.cs to make the CDK tests pass: (a) Assign the output bucket to a local variable (currently it is 'new Bucket(...)' without assignment), (b) Add OUTPUT_BUCKET_NAME environment variable to the Lambda function's Environment dictionary, (c) Grant inputBucket.GrantRead(processorFunction) for S3 download permissions, (d) Grant outputBucket.GrantWrite(processorFunction) for S3 upload permissions. Use least-privilege principles.",
+    "Step 3 - Update the Lambda handler at src/CdkBase/lambda/process_audio/index.py to implement actual audio processing: (a) Read OUTPUT_BUCKET_NAME from environment, (b) Download the input file from S3 using boto3 s3 client (get_object), (c) Implement processing logic: if .txt file, read text content and return it for downstream Polly synthesis; if audio file (.mp3/.wav/.ogg), read file and create a processed version (add metadata headers, normalize filename), (d) Upload the processed/output file to the output bucket with a clear naming convention (e.g., 'processed/{audioId}_{timestamp}.mp3'), (e) Update DynamoDB record with output location (outputBucket, outputKey), file size, and status PROCESSING_AUDIO, (f) Return a structured response containing audioId, outputBucket, outputKey, status, fileSize, and any relevant metadata for the state machine to use downstream. Handle errors gracefully with proper logging.",
+    "Step 4 - Verify all tests pass: run NODE_OPTIONS=\"\" dotnet test src/CdkBase.Tests/CdkBase.Tests.csproj --verbosity normal",
+    "Step 5 - Verify CDK synth succeeds: run NODE_OPTIONS=\"\" npx cdk synth",
+    "Step 6 - Update docs/ARCHITECTURE.md: (a) Update the 'Current Implementation Status' section to document Lambda S3 read/write permissions and OUTPUT_BUCKET_NAME env var, (b) Update the SleepAudioProcessor Lambda description to reflect actual audio processing (download, process, upload, DynamoDB update), (c) Update the Mermaid diagram to show the Lambda writing to the Output S3 Bucket, (d) Update the Metadata Layer table schema to include new fields: outputBucket, outputKey, fileSize, (e) Update the Data Flow section to reflect the now-functional processing, (f) Update the IAM Least-Privilege section for the Lambda role to include S3 permissions"
+  ],
+  "acceptance_criteria": [
+    "CDK test verifying Lambda has OUTPUT_BUCKET_NAME environment variable passes",
+    "CDK test verifying Lambda role has s3:GetObject on input bucket passes",
+    "CDK test verifying Lambda role has s3:PutObject on output bucket passes",
+    "All existing 70 tests continue to pass",
+    "NODE_OPTIONS=\"\" npx cdk synth succeeds without errors",
+    "Lambda handler downloads from S3, processes content, uploads to output bucket, updates DynamoDB with output metadata, and returns structured response",
+    "ARCHITECTURE.md is updated to reflect the new Lambda capabilities and permissions",
+    "Stack_StateMachineHasExactlyNineStates test still passes (no new states added)"
+  ],
+  "verification": [
+    "NODE_OPTIONS=\"\" dotnet test src/CdkBase.Tests/CdkBase.Tests.csproj --verbosity normal (all tests pass)",
+    "NODE_OPTIONS=\"\" npx cdk synth (synthesizes successfully)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
