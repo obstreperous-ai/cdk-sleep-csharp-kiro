@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Implement core audio processing logic in Lambda, add S3 read/write permissions in CDK, pass OUTPUT_BUCKET_NAME env var, and wire Lambda output back through the state machine. This follows strict TDD: write failing CDK tests first (verifying S3 permissions and OUTPUT_BUCKET_NAME env var), then implement the CDK changes (assign output bucket to variable, grant S3 read on input bucket and write on output bucket to Lambda, add OUTPUT_BUCKET_NAME env var), then update the Lambda handler to download from S3, process/generate audio, upload to output bucket, and update DynamoDB with output metadata.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Write failing CDK tests in src/CdkBase.Tests/CdkBaseStackTest.cs: (a) Test that Lambda has OUTPUT_BUCKET_NAME environment variable, (b) Test that Lambda execution role has s3:GetObject permission on the input bucket, (c) Test that Lambda execution role has s3:PutObject permission on the output bucket. Follow the existing test pattern using template.FindResources and JsonSerializer assertions.",
     "Step 2 - Update src/CdkBase/CdkBaseStack.cs to make the CDK tests pass: (a) Assign the output bucket to a local variable (currently it is 'new Bucket(...)' without assignment), (b) Add OUTPUT_BUCKET_NAME environment variable to the Lambda function's Environment dictionary, (c) Grant inputBucket.GrantRead(processorFunction) for S3 download permissions, (d) Grant outputBucket.GrantWrite(processorFunction) for S3 upload permissions. Use least-privilege principles.",
@@ -26,5 +26,5 @@
     "NODE_OPTIONS=\"\" npx cdk synth (synthesizes successfully)"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 73 tests pass (70 original + 3 new). CDK synth succeeds. The output bucket variable was previously unassigned (new Bucket(...) without assignment). The s3:GetBucket* and s3:Abort* assertions in tests verify the broader Grant helpers (GrantRead/GrantWrite) that CDK provides. State machine state count remains at 9 (7 Task + 1 Choice + 1 Pass) as required."
 }
