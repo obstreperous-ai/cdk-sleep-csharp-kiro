@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-003",
+  "type": "refactor",
+  "description": "Address semantic review feedback: (1) Use IClassFixture<T> to share template synthesis across tests in EndToEndValidationTest.cs, (2) Fix Python test import pattern to use module-level import, (3) Update README troubleshooting to mention xunit.runner.json parallel disablement.",
+  "status": "completed",
+  "steps": [
+    "Create a fixture class (EndToEndValidationFixture) that synthesizes the Template once and caches the state machine JSON string, then make EndToEndValidationTest implement IClassFixture<EndToEndValidationFixture> and remove per-test CreateTemplate() calls",
+    "Refactor test_index.py to import the index module at top level and call index.handler(event, context) instead of using from index import handler inside each test method",
+    "Update README.md Troubleshooting section to note that xunit.runner.json already disables parallel execution to prevent JSII resource conflicts"
+  ],
+  "acceptance_criteria": [
+    "EndToEndValidationTest uses IClassFixture<T> pattern and synthesizes template only once for all 56 tests",
+    "Python test_index.py imports index at top level and calls index.handler() consistently",
+    "README troubleshooting mentions xunit.runner.json parallel execution configuration",
+    "All 129 C# tests still pass",
+    "All 19 Python tests still pass"
+  ],
+  "verification": [
+    "unset NODE_OPTIONS && dotnet build src/CdkBase.sln",
+    "unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
+    "cd src/CdkBase/lambda/process_audio && python3 -m unittest test_index -v"
+  ],
+  "blocked_reason": null,
+  "findings": "All changes implemented successfully. IClassFixture pattern reduced template synthesis from 56x to 1x - EndToEndValidation tests now run in <1ms each instead of ~150ms+. Python tests pass with top-level import pattern. README troubleshooting section updated."
+}

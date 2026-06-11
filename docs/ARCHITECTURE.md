@@ -1,9 +1,9 @@
 # Event-Driven Sleep Audio Pipeline - Architecture
 
-> **Note:** This document defines the **target architecture** for the Sleep Audio Pipeline.
-> Components described here are implemented incrementally via TDD. The CDK stack may not
-> yet contain all resources shown below. Refer to the test suite for the current state of
-> implemented infrastructure.
+> **Note:** This document defines the architecture for the Sleep Audio Pipeline.
+> The core pipeline infrastructure has been fully implemented and validated through
+> comprehensive TDD tests. Optional future enhancements (Bedrock AI, CloudFront) are
+> noted in the Future Extensibility section.
 
 ## High-Level Overview
 
@@ -87,6 +87,21 @@ The following components from the target architecture have been implemented in t
 
 - **SNS Notification Integration**: The state machine publishes to SNS topics as the final step in both success and failure paths. Success path publishes to Completed topic after DynamoDB status update. Failure path publishes to Failed topic after DynamoDB error status update.
 
+- **CloudWatch Alarms**: Two alarms monitor pipeline health and route to the SNS Failed Topic as alarm actions:
+  - *StateMachineExecutionFailedAlarm*: Fires when ExecutionsFailed metric >= 1 in a 1-minute period.
+  - *LambdaErrorAlarm*: Fires when Lambda Errors metric >= 1 in a 1-minute period.
+  Both alarms use SnsAction to publish to the Failed Topic, integrating infrastructure alerts with the pipeline notification system.
+
+- **CloudWatch Dashboard (SleepAudioPipelineDashboard)**: Provides visual monitoring with two graph widgets:
+  - *State Machine Executions*: Started, Succeeded, and Failed executions over 5-minute periods.
+  - *Lambda Performance*: Invocations and Errors over 5-minute periods.
+
+- **X-Ray Tracing**: Active tracing enabled on both the Step Functions state machine (`TracingEnabled = true`) and the Lambda function (`Tracing = Tracing.ACTIVE`), providing end-to-end distributed tracing across the pipeline.
+
+- **Lambda File Size Validation**: The Lambda handler enforces a 100 MB maximum input file size via a pre-flight `HeadObject` check before downloading, preventing memory and timeout issues.
+
+- **Retry Policies**: Configured on multiple task states (WriteInitialMetadata, ProcessAudio, SynthesizeSpeech, UpdateStatusCompleted, UpdateStatusFailed, PublishFailureNotification) with exponential backoff to handle transient failures before routing to the error handler.
+
 - **EventBridge -> Step Functions wiring**: The AudioUploadRule now targets the Step Functions state machine directly (start execution), passing the S3 event as input.
 
 ```mermaid
@@ -106,11 +121,17 @@ flowchart LR
     E --> UC[UpdateStatusCompleted]
     UC -->|Update Status COMPLETED| D
     UC --> G[SNS Completed Topic]
+    AL1[StateMachine Failed Alarm] -->|Alarm Action| H
+    AL2[Lambda Error Alarm] -->|Alarm Action| H
 ```
 
-> **Next Steps**: Add dynamic input from S3 events to the Polly task, implement AI enhancement
-> with Bedrock, wire output to the Output S3 Bucket, add content delivery via CloudFront,
-> and extend the CDK Pipeline with staging/production stages and manual approval gates.
+> **Implementation Complete**: The core pipeline is fully implemented including: S3 input/output
+> with KMS encryption, EventBridge routing, Step Functions orchestration with retry policies and
+> error handling, Lambda processing (Python 3.12) with X-Ray tracing and file size validation,
+> Polly TTS integration, DynamoDB metadata tracking, SNS notifications (success/failure),
+> CloudWatch Alarms routing to SNS Failed Topic, and a CloudWatch Dashboard. Future enhancements
+> (Bedrock AI, dynamic Polly parameters, CloudFront delivery) are documented in the Future
+> Extensibility section.
 
 ### Deployment Pipeline (PipelineStack)
 

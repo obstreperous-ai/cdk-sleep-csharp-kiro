@@ -1,108 +1,325 @@
-# Sleep Audio Pipeline - CDK Infrastructure
+# Sleep Audio Pipeline - AWS CDK Infrastructure
 
-AWS CDK infrastructure (C#) for a sleep audio processing pipeline. This project defines cloud resources for ingesting, processing, and storing sleep audio recordings using an event-driven architecture.
+An event-driven serverless pipeline for processing sleep audio recordings, built with AWS CDK in C# (.NET 8). The system ingests audio files via S3, orchestrates processing through Step Functions, synthesizes speech with Amazon Polly, stores metadata in DynamoDB, and notifies subscribers via SNS.
 
-## Project Purpose
+## Architecture Overview
 
-This repository contains the Infrastructure-as-Code (IaC) for the sleep audio pipeline, built with AWS CDK in C#. The pipeline processes sleep audio recordings through an event-driven architecture using S3, EventBridge, Step Functions, Lambda, and DynamoDB.
+The Sleep Audio Pipeline is a fully serverless system that processes uploaded audio files (or text scripts for TTS) through a multi-step orchestration workflow.
 
-## TDD-First Development
+```mermaid
+flowchart TD
+    subgraph Ingestion
+        A[Input S3 Bucket] -->|Object Created Event| B[EventBridge Rule]
+    end
 
-This project follows a Test-Driven Development approach:
+    subgraph Orchestration
+        B -->|Start Execution| C[Step Functions State Machine]
+        C --> D[WriteInitialMetadata - DynamoDB PutItem]
+        D --> V{ValidateInput - Check Extension}
+        V -->|Valid: .mp3/.wav/.ogg/.txt| E[ProcessAudio - Lambda]
+        V -->|Invalid| UF[UpdateStatusFailed]
+        E --> F[SynthesizeSpeech - Amazon Polly]
+        F --> G[UpdateStatusCompleted]
+        G --> H[PublishSuccessNotification - SNS]
+    end
 
-1. **Write a failing test** describing the infrastructure you want
-2. **Implement the CDK code** to make the test pass
-3. **Refactor** while keeping tests green
+    subgraph Error Handling
+        UF --> PF[PublishFailureNotification - SNS Failed Topic]
+    end
 
-All infrastructure changes start with a test in `src/CdkBase.Tests/`.
+    subgraph Storage
+        E -->|Download| A
+        E -->|Upload Processed| OB[Output S3 Bucket]
+        E -->|Update Metadata| DB[DynamoDB Metadata Table]
+        D -->|Write Initial Record| DB
+        G -->|Update Status| DB
+    end
+
+    subgraph Observability
+        AL1[StateMachine Failed Alarm] -->|Alarm Action| PF
+        AL2[Lambda Error Alarm] -->|Alarm Action| PF
+        CWD[CloudWatch Dashboard]
+    end
+```
+
+### Key Components
+
+| Service | Purpose |
+|---------|---------|
+| **S3 (Input)** | Receives raw audio uploads; triggers EventBridge on object creation |
+| **S3 (Output)** | Stores processed audio files with versioning |
+| **EventBridge** | Routes S3 events to Step Functions state machine |
+| **Step Functions** | Orchestrates the processing workflow with retry and error handling |
+| **Lambda (Python 3.12)** | Downloads input, processes content, uploads output, updates metadata |
+| **Amazon Polly** | Text-to-speech synthesis (AWS SDK integration) |
+| **DynamoDB** | Metadata table tracking processing lifecycle (on-demand billing) |
+| **SNS** | Success and failure notification topics (KMS encrypted) |
+| **CloudWatch** | Alarms, dashboard, execution logs (14-day retention), X-Ray tracing |
 
 ## Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (or .NET 9 with RollForward)
 - [Node.js 20+](https://nodejs.org/)
 - [AWS CDK CLI](https://docs.aws.amazon.com/cdk/v2/guide/cli.html) (`npm install -g aws-cdk`)
+- [Python 3.12](https://www.python.org/downloads/) (for Lambda development and testing)
+- AWS account with configured credentials (for deployment)
 
 ## Getting Started
 
 ```bash
+# Clone the repository
+git clone <repository-url>
+cd cdk-sleep-csharp-kiro
+
 # Restore NuGet packages
 dotnet restore src/CdkBase.sln
 
 # Build the solution
 dotnet build src/CdkBase.sln
 
-# Run tests
-dotnet test src/CdkBase.sln
+# Run all tests (C# infrastructure tests)
+dotnet test src/CdkBase.sln --verbosity normal
 
-# Synthesize CloudFormation template
-cdk synth
+# Synthesize CloudFormation template (default: dev environment)
+npx cdk synth
 
-# Compare with deployed stack
-cdk diff
+# Synthesize for a specific environment
+npx cdk synth -c environment=dev
+npx cdk synth -c environment=prod
 ```
+
+## Deployment
+
+### Bootstrap (first-time only)
+
+```bash
+# Bootstrap CDK in your AWS account/region
+cdk bootstrap aws://ACCOUNT_ID/REGION
+```
+
+### Deploy
+
+```bash
+# Deploy with default (dev) configuration
+cdk deploy
+
+# Deploy to a specific environment
+cdk deploy -c environment=dev
+cdk deploy -c environment=staging
+cdk deploy -c environment=prod
+
+# Preview changes before deployment
+cdk diff
+cdk diff -c environment=prod
+```
+
+### CI/CD Pipeline
+
+The project includes a `PipelineStack` (CDK Pipelines) for automated deployment:
+- Sources from GitHub via CodeStar Connections
+- Self-mutating pipeline that updates itself on changes
+- Builds .NET solution, synthesizes CDK, and deploys the stack
+
+## Usage
+
+### Uploading Audio Files
+
+Upload a supported file to the input S3 bucket to trigger the pipeline:
+
+```bash
+# Upload an audio file
+aws s3 cp my-sleep-audio.mp3 s3://<input-bucket-name>/
+
+# Upload a text file for speech synthesis
+aws s3 cp sleep-script.txt s3://<input-bucket-name>/
+```
+
+**Supported formats:** `.mp3`, `.wav`, `.ogg`, `.txt`
+
+### Checking Processing Status
+
+Query the DynamoDB metadata table for processing status:
+
+```bash
+aws dynamodb get-item \
+  --table-name <metadata-table-name> \
+  --key '{"audioId": {"S": "my-sleep-audio.mp3"}}'
+```
+
+**Status values:** `PROCESSING` -> `PROCESSED` -> `COMPLETED` (or `FAILED`)
+
+### Viewing Notifications
+
+Subscribe to SNS topics for real-time notifications:
+
+```bash
+# Subscribe to success notifications
+aws sns subscribe \
+  --topic-arn <completed-topic-arn> \
+  --protocol email \
+  --notification-endpoint your@email.com
+
+# Subscribe to failure notifications
+aws sns subscribe \
+  --topic-arn <failed-topic-arn> \
+  --protocol email \
+  --notification-endpoint your@email.com
+```
+
+### Monitoring
+
+- **CloudWatch Dashboard**: View state machine executions and Lambda performance metrics
+- **CloudWatch Alarms**: Automatic alerts on state machine failures or Lambda errors
+- **X-Ray**: End-to-end distributed tracing across the pipeline
+- **Step Functions Console**: Visual execution history and state transitions
+
+## Environment Configuration
+
+The project supports multiple environments via CDK context:
+
+```bash
+cdk synth -c environment=dev      # Development (default)
+cdk synth -c environment=staging  # Staging
+cdk synth -c environment=prod     # Production
+```
+
+| Configuration | Dev | Staging | Production |
+|---------------|-----|---------|------------|
+| Log Retention | 14 days | 30 days | 90 days |
+| S3 Versioning | Enabled | Enabled | Enabled |
+| DynamoDB Mode | On-demand | On-demand | On-demand |
+| KMS Encryption | SSE-KMS | SSE-KMS | SSE-KMS |
+| PITR Recovery | Enabled | Enabled | Enabled |
+
+All environments include full security defaults: KMS encryption on S3/DynamoDB/SNS, public access blocked, least-privilege IAM.
 
 ## Running Tests
 
+### C# Infrastructure Tests
+
 ```bash
-# Run all tests with verbose output
+# Run all tests
 dotnet test src/CdkBase.sln --verbosity normal
 
-# Run tests with a filter
+# Run specific test classes
 dotnet test src/CdkBase.sln --filter "FullyQualifiedName~CdkBaseStackTest"
+dotnet test src/CdkBase.sln --filter "FullyQualifiedName~EndToEndValidationTest"
+dotnet test src/CdkBase.sln --filter "FullyQualifiedName~PipelineStackTest"
 ```
 
-Tests use CDK Assertions (`Amazon.CDK.Assertions` namespace from `Amazon.CDK.Lib`) to verify synthesized CloudFormation templates without deploying.
+### Python Lambda Unit Tests
+
+```bash
+cd src/CdkBase/lambda/process_audio
+python -m pytest test_index.py -v
+# or
+python -m unittest test_index -v
+```
+
+### Test Coverage
+
+- **CdkBaseStackTest** (70 tests): Individual resource verification (S3, DynamoDB, Lambda, Step Functions, alarms, dashboard)
+- **EndToEndValidationTest** (56 tests): Full pipeline flow validation (happy path, error paths, retry policies, permissions)
+- **PipelineStackTest** (3 tests): CI/CD pipeline configuration
+- **Python tests** (19 tests): Lambda handler logic (validation, processing, error handling)
 
 ## Project Structure
 
 ```
 .
 ├── src/
-│   ├── CdkBase.sln              # Solution file
-│   ├── CdkBase/                 # Main CDK app
-│   │   ├── Program.cs           # CDK app entry point
-│   │   ├── CdkBaseStack.cs      # Stack definition
-│   │   └── CdkBase.csproj       # Project file
-│   └── CdkBase.Tests/           # xUnit test project
-│       ├── CdkBaseStackTest.cs   # Stack tests (TDD-first)
-│       └── CdkBase.Tests.csproj  # Test project file
+│   ├── CdkBase.sln                      # .NET solution file
+│   ├── CdkBase/                         # CDK application
+│   │   ├── Program.cs                   # CDK app entry point
+│   │   ├── CdkBaseStack.cs             # Main infrastructure stack
+│   │   ├── PipelineStack.cs            # CI/CD pipeline stack
+│   │   ├── CdkBase.csproj             # Project file
+│   │   └── lambda/
+│   │       └── process_audio/
+│   │           ├── index.py            # Lambda handler (Python 3.12)
+│   │           └── test_index.py       # Lambda unit tests
+│   └── CdkBase.Tests/                  # xUnit test project
+│       ├── CdkBaseStackTest.cs         # Stack resource tests
+│       ├── EndToEndValidationTest.cs   # End-to-end validation tests
+│       ├── PipelineStackTest.cs        # Pipeline tests
+│       └── CdkBase.Tests.csproj       # Test project file
 ├── docs/
-│   └── ARCHITECTURE.md          # Architecture documentation
+│   ├── ARCHITECTURE.md                 # Detailed architecture documentation
+│   ├── AGENT_GUIDELINES.md            # Development workflow and conventions
+│   └── SUMMARY.md                     # Project summary and key decisions
 ├── .github/
 │   └── workflows/
-│       └── ci.yml               # CI pipeline
-├── cdk.json                     # CDK configuration
-└── README.md
+│       └── ci.yml                     # GitHub Actions CI workflow
+├── cdk.json                           # CDK configuration and context
+├── LICENSE                            # MIT License
+└── README.md                          # This file
 ```
 
-## Architecture Overview
+## Troubleshooting
 
-The sleep audio pipeline uses an event-driven architecture:
+### Common Issues
 
+**CDK Synth fails with NODE_OPTIONS error**
+```bash
+# Unset NODE_OPTIONS before running CDK commands
+unset NODE_OPTIONS
+npx cdk synth
 ```
-[Audio Upload] --> [S3] --> [EventBridge] --> [Step Functions] --> [Lambda] --> [DynamoDB]
+
+**Tests fail with JSII runtime errors**
+The test project includes `xunit.runner.json` which disables parallel test execution (`parallelizeTestCollections: false`, `maxParallelThreads: 1`) to prevent JSII runtime resource conflicts. If you still encounter issues under heavy resource pressure, run test classes individually:
+```bash
+dotnet test src/CdkBase.sln --filter "FullyQualifiedName~CdkBaseStackTest"
+dotnet test src/CdkBase.sln --filter "FullyQualifiedName~EndToEndValidationTest"
 ```
 
-- **S3**: Audio file ingestion and storage
-- **EventBridge**: Event routing and filtering
-- **Step Functions**: Workflow orchestration
-- **Lambda**: Audio processing functions
-- **DynamoDB**: Metadata storage
+**Lambda function timeout during processing**
+- Check file size (maximum 100 MB input files)
+- Verify S3 permissions are correctly configured
+- Check CloudWatch Logs for the Lambda function
 
-For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Step Functions execution fails**
+- Check CloudWatch Logs for the state machine (log level ALL)
+- Review DynamoDB metadata table for error details in the `errorInfo` field
+- Check the SNS Failed topic for failure notifications
+- Use X-Ray traces for end-to-end visibility
 
-## Useful CDK Commands
+**CDK Bootstrap required**
+```bash
+# If you see "This stack uses assets" error
+cdk bootstrap aws://ACCOUNT_ID/REGION
+```
 
-| Command | Description |
-|---------|-------------|
-| `dotnet build src/CdkBase.sln` | Compile the CDK app |
-| `cdk synth` | Emit the synthesized CloudFormation template |
-| `cdk diff` | Compare deployed stack with current state |
-| `cdk deploy` | Deploy this stack to your AWS account/region |
-| `dotnet test src/CdkBase.sln` | Run infrastructure tests |
+### Useful Commands
+
+```bash
+# View state machine executions
+aws stepfunctions list-executions --state-machine-arn <arn>
+
+# Check Lambda logs
+aws logs tail /aws/lambda/<function-name> --follow
+
+# Query DynamoDB for failed items
+aws dynamodb scan \
+  --table-name <table-name> \
+  --filter-expression "#s = :failed" \
+  --expression-attribute-names '{"#s":"status"}' \
+  --expression-attribute-values '{":failed":{"S":"FAILED"}}'
+```
+
+## Documentation
+
+- [Architecture Documentation](docs/ARCHITECTURE.md) - Detailed system design, data flow, security model, and observability
+- [Agent Guidelines](docs/AGENT_GUIDELINES.md) - Development workflow, TDD practices, and coding conventions
+- [Project Summary](docs/SUMMARY.md) - Key decisions, what was built, and experiment notes
 
 ## Contributing
 
-For development guidelines, coding standards, and issue implementation rules, see [docs/AGENT_GUIDELINES.md](docs/AGENT_GUIDELINES.md).
+This project follows strict TDD methodology. All infrastructure changes must:
 
-For architecture decisions and system design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+1. Start with a failing test in `src/CdkBase.Tests/`
+2. Be traceable to a component in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+3. Pass all existing tests after implementation
+4. Be verified with `npx cdk synth` for all environments
+
+See [docs/AGENT_GUIDELINES.md](docs/AGENT_GUIDELINES.md) for complete development guidelines.
