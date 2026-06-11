@@ -1461,5 +1461,89 @@ namespace CdkBase.Tests
             // Assert - verify exactly 1 CloudWatch Dashboard exists
             template.ResourceCountIs("AWS::CloudWatch::Dashboard", 1);
         }
+
+        [Fact]
+        public void Stack_LambdaFunctionHasOutputBucketEnvironmentVariable()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the Lambda function has OUTPUT_BUCKET_NAME environment variable
+            var functions = template.FindResources("AWS::Lambda::Function");
+            var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
+
+            var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
+                .GetProperty("Properties");
+
+            var envVars = properties.GetProperty("Environment").GetProperty("Variables");
+            Assert.True(envVars.TryGetProperty("OUTPUT_BUCKET_NAME", out _),
+                "Lambda function is missing OUTPUT_BUCKET_NAME environment variable");
+        }
+
+        [Fact]
+        public void Stack_LambdaExecutionRoleHasS3GetObjectOnInputBucket()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the Lambda execution role's policy contains s3:GetObject
+            // scoped to the input bucket ARN (not just any policy in the stack)
+            var policies = template.FindResources("AWS::IAM::Policy");
+
+            // Find the policy attached to the Lambda execution role
+            var lambdaPolicyEntry = policies.First(p =>
+            {
+                var json = JsonSerializer.Serialize(p.Value);
+                return json.Contains("SleepAudioProcessorFunction") && json.Contains("s3:GetObject");
+            });
+
+            var policyJson = JsonSerializer.Serialize(lambdaPolicyEntry.Value);
+
+            // Verify the policy contains s3:GetObject action
+            Assert.Contains("s3:GetObject", policyJson);
+            Assert.Contains("s3:GetBucket", policyJson);
+
+            // Verify the policy resource references the input bucket (SleepAudioInputBucket)
+            Assert.Contains("SleepAudioInputBucket", policyJson);
+        }
+
+        [Fact]
+        public void Stack_LambdaExecutionRoleHasS3PutObjectOnOutputBucket()
+        {
+            // Arrange
+            var app = new App();
+
+            // Act
+            var stack = new CdkBaseStack(app, "TestStack");
+            var template = Template.FromStack(stack);
+
+            // Assert - verify the Lambda execution role's policy contains s3:PutObject
+            // scoped to the output bucket ARN (not just any policy in the stack)
+            var policies = template.FindResources("AWS::IAM::Policy");
+
+            // Find the policy attached to the Lambda execution role
+            var lambdaPolicyEntry = policies.First(p =>
+            {
+                var json = JsonSerializer.Serialize(p.Value);
+                return json.Contains("SleepAudioProcessorFunction") && json.Contains("s3:PutObject");
+            });
+
+            var policyJson = JsonSerializer.Serialize(lambdaPolicyEntry.Value);
+
+            // Verify the policy contains s3:PutObject action
+            Assert.Contains("s3:PutObject", policyJson);
+            Assert.Contains("s3:Abort", policyJson);
+
+            // Verify the policy resource references the output bucket (SleepAudioOutputBucket)
+            Assert.Contains("SleepAudioOutputBucket", policyJson);
+        }
     }
 }

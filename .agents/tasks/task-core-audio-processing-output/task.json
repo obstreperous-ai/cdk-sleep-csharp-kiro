@@ -1,0 +1,14 @@
+{
+  "task_id": "task-core-audio-processing-output",
+  "task_description": "Implement core audio processing logic in the Lambda handler (download from S3, process/generate audio, upload to output bucket, update DynamoDB with output metadata) and add required S3 permissions in CDK following strict TDD. Update ARCHITECTURE.md to reflect the now-functional pipeline.",
+  "status": "completed",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "All 73 tests pass after review fixes. CDK synth succeeds. Review issues addressed: (1) Lambda memory increased to 512MB with HeadObject size guard for files >100MB, (2) DynamoDB status changed from PROCESSING_AUDIO to PROCESSED for semantic clarity, (3) S3 permission tests now verify actions are on the Lambda role and scoped to the correct bucket ARN, (4) Structured error logging added for DynamoDB failures to enable orphan discovery. Issue #2 (Polly hardcoded text) skipped as pre-existing."
+  }
+}
