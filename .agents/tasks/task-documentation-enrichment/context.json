@@ -1,0 +1,24 @@
+{
+  "project_type": "AWS CDK C# (.NET 8) serverless infrastructure project - Sleep Audio Pipeline",
+  "language": "C# (CDK infrastructure), Python (Lambda handler)",
+  "build_system": "dotnet CLI with NuGet packages, CDK CLI via npx",
+  "test_framework": "xUnit with CDK Assertions (C#), Python unittest with mocking",
+  "build_command": "cd /projects/sandbox/cdk-sleep-csharp-kiro && unset NODE_OPTIONS && dotnet build src/CdkBase.sln",
+  "test_command": "cd /projects/sandbox/cdk-sleep-csharp-kiro && unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity quiet",
+  "verification_instructions": "1. dotnet restore src/CdkBase.sln 2. dotnet build src/CdkBase.sln 3. dotnet test src/CdkBase.sln --verbosity quiet (129 tests pass) 4. npx cdk synth (optional, verifies synth works)",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "unset NODE_OPTIONS && dotnet restore src/CdkBase.sln && dotnet build src/CdkBase.sln",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode - package registries available. Must unset NODE_OPTIONS before dotnet/cdk commands. .NET 9.0.314 installed (project targets net8.0 with RollForward). Node.js available for CDK CLI.",
+  "contribution_requirements": "Strict TDD methodology. All changes must be traceable to ARCHITECTURE.md. Conventional commits required. CI workflow: restore, build, test, cdk synth for multiple environments.",
+  "key_patterns": "Documentation lives in docs/ directory (ARCHITECTURE.md, AGENT_GUIDELINES.md, SUMMARY.md). README.md at project root. License is Apache 2.0. Project uses Mermaid diagrams in docs. GitHub Actions CI in .github/workflows/ci.yml.",
+  "relevant_files": [
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md",
+    "docs/SUMMARY.md",
+    ".github/workflows/ci.yml",
+    "cdk.json",
+    "LICENSE"
+  ],
+  "directory_structure": "Root: README.md, LICENSE, cdk.json. src/CdkBase/ = CDK app (stacks, lambda). src/CdkBase.Tests/ = xUnit tests. docs/ = ARCHITECTURE.md, AGENT_GUIDELINES.md, SUMMARY.md. .github/workflows/ = ci.yml. .agents/tasks/ = prior task state."
+}

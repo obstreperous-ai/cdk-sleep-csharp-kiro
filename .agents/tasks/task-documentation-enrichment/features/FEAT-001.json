@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-001",
+  "type": "docs",
+  "description": "Enrich README.md to a comprehensive, professional standard with badges, table of contents, experiment methodology, meta-prompting references, architecture summary, and polished navigation. Also create docs/META-PROMPTS.md with reusable agentic TDD IaC patterns extracted from the project.",
+  "status": "in_progress",
+  "steps": [
+    "Rewrite README.md to include: (a) badges section at top (GitHub Actions CI status badge, language badge for C#, CDK version badge, license badge), (b) a table of contents for all major sections, (c) an expanded project overview explaining the TDD IaC experiment goals and methodology, (d) architecture summary section with the existing Mermaid diagram and a prominent link to docs/ARCHITECTURE.md, (e) comprehensive Quick Start section (prerequisites, setup, synth, deploy), (f) How to Run Tests and CI section covering both C# and Python tests, CI workflow steps, and troubleshooting, (g) Experiment Methodology section explaining pure issue-driven development, strict TDD rules (Red-Green-Refactor), and AI-assisted development, (h) Meta-Prompting and Agent Guidelines section summarizing reusable patterns with link to docs/META-PROMPTS.md, (i) Project Structure section (keep existing tree but add annotations), (j) Environment Configuration table, (k) Usage examples (uploading files, checking status, monitoring), (l) Deployment section, (m) Known Limitations, (n) Contributing section, (o) License section referencing Apache 2.0, (p) Links to all documentation (ARCHITECTURE.md, AGENT_GUIDELINES.md, SUMMARY.md, META-PROMPTS.md)",
+    "Create docs/META-PROMPTS.md with reusable patterns extracted from the project: (a) Introduction explaining meta-prompting for agentic TDD IaC projects, (b) Agent Instruction Template - a generalizable template for how to instruct AI agents on TDD CDK projects (derived from AGENT_GUIDELINES.md), (c) Issue-Driven Development Pattern - how to structure implementation issues for agent consumption (clear task ordering, acceptance criteria, success criteria), (d) TDD Infrastructure Pattern - Red/Green/Refactor applied to CDK Assertions (with code examples from this project), (e) Architecture-First Pattern - maintaining architecture docs as source of truth, requiring doc updates before code changes, (f) Context Propagation Pattern - using context.json and feature files to maintain state across agent sessions, (g) Error Handling and Retry Pattern for Step Functions, (h) Reusable prompt snippets that can be copied into future projects",
+    "Review docs/ARCHITECTURE.md for any needed updates: ensure all links from README work, verify the 'Current Implementation Status' and diagrams are accurate relative to the codebase (the existing content is comprehensive - only add a cross-reference back to README if missing)",
+    "Ensure all internal documentation links (README -> docs/ARCHITECTURE.md, README -> docs/META-PROMPTS.md, README -> docs/AGENT_GUIDELINES.md, README -> docs/SUMMARY.md) are valid relative paths"
+  ],
+  "acceptance_criteria": [
+    "README.md includes a badges section with at least GitHub Actions CI status badge and language/license badges",
+    "README.md includes a clickable table of contents linking to all major sections",
+    "README.md includes an Experiment Methodology section explaining TDD approach and issue-driven development",
+    "README.md includes a Meta-Prompting section with a link to docs/META-PROMPTS.md",
+    "docs/META-PROMPTS.md exists and contains at least 5 reusable patterns extracted from the project",
+    "docs/META-PROMPTS.md includes concrete code examples and prompt templates",
+    "All internal documentation links resolve correctly (relative paths)",
+    "README.md maintains all existing functional information (prerequisites, getting started, deployment, tests, troubleshooting)",
+    "No existing tests are broken by documentation-only changes"
+  ],
+  "verification": [
+    "Run `cd /projects/sandbox/cdk-sleep-csharp-kiro && unset NODE_OPTIONS && dotnet build src/CdkBase.sln --verbosity quiet` to confirm build still passes",
+    "Run `cd /projects/sandbox/cdk-sleep-csharp-kiro && unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity quiet` to confirm all 129 tests still pass",
+    "Verify docs/META-PROMPTS.md file exists and is non-empty",
+    "Verify README.md contains table of contents, badges, and meta-prompting section"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

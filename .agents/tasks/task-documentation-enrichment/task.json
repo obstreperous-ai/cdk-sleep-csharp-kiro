@@ -1,0 +1,7 @@
+{
+  "task_id": "task-documentation-enrichment",
+  "task_description": "Enrich README.md to professional standard, create docs/META-PROMPTS.md with reusable agentic TDD patterns, and ensure all documentation links work. Issue #25 / Issue #13.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}
