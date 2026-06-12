@@ -1,0 +1,28 @@
+{
+  "project_type": "AWS CDK C# (.NET 8) project - Sleep Audio Pipeline infrastructure",
+  "language": "C# for CDK stacks, Python for Lambda function",
+  "build_system": "dotnet CLI with NuGet packages, CDK CLI (npx cdk synth)",
+  "test_framework": "xUnit with CDK Assertions (Amazon.CDK.Assertions). Tests verify synthesized CloudFormation templates.",
+  "build_command": "unset NODE_OPTIONS && dotnet build src/CdkBase.sln",
+  "test_command": "unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. Run 'dotnet build src/CdkBase.sln' - should succeed with 0 errors. 2. Run 'dotnet test src/CdkBase.sln --verbosity normal' - all tests should pass. 3. Run 'npx cdk synth' - should produce valid CloudFormation template. 4. Run 'npx cdk synth -c environment=dev' and 'npx cdk synth -c environment=prod' for multi-environment validation.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "1. unset NODE_OPTIONS (required due to sandbox node config). 2. npm install -g aws-cdk. 3. dotnet restore src/CdkBase.sln. 4. dotnet build src/CdkBase.sln.",
+  "environment_constraints": "NODE_OPTIONS must be unset before running any node/cdk/dotnet test commands due to sandbox environment. .NET 9.0.314 is installed (project targets net8.0 with RollForward=Major). Node.js v22.22.3 available. Network mode is COMMON_DEPENDENCIES - can install NuGet packages and npm packages.",
+  "contribution_requirements": "Strict TDD: write failing tests first, then implement minimum code to pass. Every infra change must trace to ARCHITECTURE.md. CDK Assertions pattern for tests. Conventional commit messages.",
+  "key_patterns": "Tests use Template.FromStack(stack) with FindResources/HasResourceProperties. JSON serialization to inspect state machine definitions. Tests serialize StateMachine resources and use string assertions on the JSON to verify state wiring, error handling, and resource references. CdkBaseStack accepts optional 'environment' param. PipelineStack uses CodePipeline with ShellStep synth.",
+  "relevant_files": [
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase.Tests/PipelineStackTest.cs",
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase/PipelineStack.cs",
+    "src/CdkBase/Program.cs",
+    "src/CdkBase/lambda/process_audio/index.py",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md",
+    "README.md",
+    ".github/workflows/ci.yml",
+    "cdk.json"
+  ],
+  "directory_structure": "Root: cdk.json, README.md, LICENSE. src/CdkBase/ - CDK app (Program.cs, CdkBaseStack.cs, PipelineStack.cs, lambda/process_audio/index.py). src/CdkBase.Tests/ - xUnit tests. docs/ - ARCHITECTURE.md, AGENT_GUIDELINES.md. .github/workflows/ - ci.yml."
+}
