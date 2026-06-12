@@ -326,13 +326,15 @@ python -m unittest test_index -v
 
 ### Test Coverage
 
+The project has **148 total tests** across two runtimes: 129 C# infrastructure tests (run via `dotnet test`) and 19 Python Lambda tests (run separately via `pytest`).
+
 | Test Class | Count | Scope |
 |------------|-------|-------|
 | **CdkBaseStackTest** | 70 | Individual resource verification (S3, DynamoDB, Lambda, Step Functions, alarms, dashboard) |
 | **EndToEndValidationTest** | 56 | Full pipeline flow validation (happy path, error paths, retry policies, permissions) |
 | **PipelineStackTest** | 3 | CI/CD pipeline configuration |
-| **Python tests** | 19 | Lambda handler logic (validation, processing, error handling) |
-| **Total** | **148** | |
+| **Python tests** (separate) | 19 | Lambda handler logic (validation, processing, error handling) |
+| **Total** | **148** | 129 C# + 19 Python |
 
 ---
 
