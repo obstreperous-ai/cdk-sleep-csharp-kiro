@@ -1,0 +1,22 @@
+{
+  "project_type": "AWS CDK Infrastructure-as-Code in C# (.NET 8) for a sleep audio processing pipeline",
+  "language": "C# (CDK infrastructure), Python (Lambda)",
+  "build_system": "dotnet CLI, CDK CLI via npx",
+  "test_framework": "xUnit with CDK Assertions (C#), Python unittest/pytest (Lambda)",
+  "build_command": "dotnet build src/CdkBase.sln",
+  "test_command": "dotnet test src/CdkBase.sln --verbosity quiet",
+  "verification_instructions": "This is a documentation-only change. Verify all markdown links resolve correctly and no build regressions.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "unset NODE_OPTIONS && dotnet restore src/CdkBase.sln",
+  "environment_constraints": "Shallow git clone (grafted). Cannot unshallow. Network is INTEGRATIONS_ONLY (GitHub access only, no package registries). Use pre-installed .NET 9 with RollForward.",
+  "contribution_requirements": "Documentation files use UPPER_CASE.md naming. All docs live in docs/ directory. Conventional commits required.",
+  "key_patterns": "Documentation-only task. The project uses Mermaid diagrams, has a Documentation table in README.md linking to docs/, and follows a pattern of comprehensive markdown documents with clear section structure.",
+  "relevant_files": [
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/AGENT_GUIDELINES.md",
+    "docs/META-PROMPTS.md",
+    "docs/SUMMARY.md"
+  ],
+  "directory_structure": "src/ (CDK app + tests), docs/ (documentation), .agents/tasks/ (task tracking), .github/workflows/ (CI)"
+}

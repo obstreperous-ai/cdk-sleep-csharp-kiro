@@ -1,0 +1,7 @@
+{
+  "task_id": "task-experiment-design-documentation",
+  "task_description": "Create docs/EXPERIMENT.md with comprehensive experiment design documentation capturing the methodology, actors, prompting approach, issue history, and lessons from this TDD IaC project. Update README.md to link to it prominently.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

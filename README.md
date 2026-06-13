@@ -89,7 +89,9 @@ flowchart TD
 
 ## Experiment Methodology
 
-This project was built as an experiment in **agentic TDD infrastructure development**. The goal was to demonstrate that production-quality serverless infrastructure can be constructed entirely through:
+This project was built as an experiment in **agentic TDD infrastructure development**. The goal was to demonstrate that production-quality serverless infrastructure can be constructed entirely through AI-assisted, issue-driven TDD. For the full experimental design, methodology, issue history, and observations, see [docs/EXPERIMENT.md](docs/EXPERIMENT.md).
+
+The approach demonstrates that production-quality serverless infrastructure can be constructed entirely through:
 
 ### Pure Issue-Driven Development
 
@@ -447,6 +449,7 @@ aws dynamodb scan \
 | [Agent Guidelines](docs/AGENT_GUIDELINES.md) | Development workflow, TDD practices, and coding conventions |
 | [Project Summary](docs/SUMMARY.md) | Key decisions, what was built, and experiment notes |
 | [Meta-Prompts](docs/META-PROMPTS.md) | Reusable agentic TDD IaC patterns and prompt templates |
+| [Experiment Design](docs/EXPERIMENT.md) | Experimental methodology, issue history, and preliminary observations |
 
 ---
 
