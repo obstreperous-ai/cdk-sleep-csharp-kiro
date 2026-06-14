@@ -32,7 +32,26 @@ jobs:
         run: dotnet build src/CdkBase.sln --no-restore
 
       - name: Test
-        run: dotnet test src/CdkBase.sln --no-build --verbosity normal
+        run: dotnet test src/CdkBase.sln --no-build --verbosity normal --collect:"XPlat Code Coverage"
+
+      - name: Display coverage summary
+        if: always()
+        run: |
+          echo "## Code Coverage Report" >> $GITHUB_STEP_SUMMARY
+          find . -name "coverage.cobertura.xml" -exec echo "Coverage file: {}" \; >> $GITHUB_STEP_SUMMARY
+          # Display line coverage percentage from cobertura XML
+          for f in $(find . -name "coverage.cobertura.xml"); do
+            LINE_RATE=$(grep -oP 'line-rate="\K[^"]+' "$f" | head -1)
+            BRANCH_RATE=$(grep -oP 'branch-rate="\K[^"]+' "$f" | head -1)
+            if [ -n "$LINE_RATE" ]; then
+              LINE_PCT=$(echo "$LINE_RATE * 100" | bc -l | xargs printf "%.1f")
+              echo "- Line coverage: ${LINE_PCT}%" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$BRANCH_RATE" ]; then
+              BRANCH_PCT=$(echo "$BRANCH_RATE * 100" | bc -l | xargs printf "%.1f")
+              echo "- Branch coverage: ${BRANCH_PCT}%" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
 
       - name: CDK Synth
         run: npx cdk synth

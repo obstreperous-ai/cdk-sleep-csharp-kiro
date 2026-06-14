@@ -18,8 +18,24 @@ using Constructs;
 
 namespace CdkBase
 {
+    /// <summary>
+    /// Defines the Sleep Audio Processing Pipeline infrastructure stack.
+    /// This stack provisions an event-driven serverless pipeline that processes audio uploads
+    /// through S3, EventBridge, Step Functions, Lambda, DynamoDB, Polly, and SNS,
+    /// with full observability via CloudWatch alarms and dashboards.
+    /// </summary>
     public class CdkBaseStack : Stack
     {
+        /// <summary>
+        /// Creates a new instance of the Sleep Audio Processing Pipeline stack.
+        /// </summary>
+        /// <param name="scope">The construct scope (parent).</param>
+        /// <param name="id">The logical ID for this stack.</param>
+        /// <param name="props">Optional stack properties (account, region, etc.).</param>
+        /// <param name="environment">
+        /// The target deployment environment (dev, staging, prod).
+        /// Defaults to the CDK context value "environment", or "dev" if not specified.
+        /// </param>
         internal CdkBaseStack(Construct scope, string id, IStackProps props = null, string environment = null) : base(scope, id, props)
         {
             // Environment defaults to "dev" if not specified
@@ -28,7 +44,33 @@ namespace CdkBase
             // Tag the stack with the environment name for multi-environment identification
             Amazon.CDK.Tags.Of(this).Add("Environment", env);
 
-            // Input S3 Bucket for raw sleep audio uploads
+            // Create all infrastructure resources via organized helper methods
+            var (inputBucket, outputBucket) = CreateStorageBuckets();
+            var metadataTable = CreateMetadataTable();
+            var rule = CreateEventBridgeRule(inputBucket);
+            var logGroup = CreateLogGroup();
+            var (completedTopic, failedTopic) = CreateNotificationTopics();
+            var (writeInitialMetadata, processAudioTask, pollyTask, updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure) =
+                CreateProcessingSteps(metadataTable, inputBucket, outputBucket, completedTopic, failedTopic);
+            var stateMachine = CreateStateMachine(
+                logGroup, writeInitialMetadata, processAudioTask, pollyTask,
+                updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure);
+            ConfigureStateMachinePermissions(stateMachine, metadataTable, completedTopic, failedTopic);
+            rule.AddTarget(new SfnStateMachine(stateMachine));
+            CreateAlarmsAndDashboard(stateMachine, failedTopic,
+                GetProcessorFunction(processAudioTask));
+        }
+
+        // ================================================================
+        // Storage Resources
+        // ================================================================
+
+        /// <summary>
+        /// Creates the input and output S3 buckets with KMS encryption, versioning,
+        /// and public access blocked.
+        /// </summary>
+        private (Bucket inputBucket, Bucket outputBucket) CreateStorageBuckets()
+        {
             var inputBucket = new Bucket(this, "SleepAudioInputBucket", new BucketProps
             {
                 Encryption = BucketEncryption.KMS_MANAGED,
@@ -38,7 +80,6 @@ namespace CdkBase
                 RemovalPolicy = RemovalPolicy.DESTROY
             });
 
-            // Output S3 Bucket for processed sleep audio
             var outputBucket = new Bucket(this, "SleepAudioOutputBucket", new BucketProps
             {
                 Encryption = BucketEncryption.KMS_MANAGED,
@@ -47,8 +88,20 @@ namespace CdkBase
                 RemovalPolicy = RemovalPolicy.DESTROY
             });
 
-            // DynamoDB Metadata Table for tracking audio processing status
-            var metadataTable = new Table(this, "SleepAudioMetadataTable", new TableProps
+            return (inputBucket, outputBucket);
+        }
+
+        // ================================================================
+        // Metadata Table
+        // ================================================================
+
+        /// <summary>
+        /// Creates the DynamoDB metadata table for tracking audio processing status.
+        /// Uses on-demand billing, encryption, and point-in-time recovery.
+        /// </summary>
+        private Table CreateMetadataTable()
+        {
+            return new Table(this, "SleepAudioMetadataTable", new TableProps
             {
                 PartitionKey = new Attribute { Name = "audioId", Type = AttributeType.STRING },
                 BillingMode = BillingMode.PAY_PER_REQUEST,
@@ -56,9 +109,19 @@ namespace CdkBase
                 PointInTimeRecoverySpecification = new PointInTimeRecoverySpecification { PointInTimeRecoveryEnabled = true },
                 RemovalPolicy = RemovalPolicy.DESTROY
             });
+        }
 
-            // EventBridge Rule to detect new objects in the input bucket
-            var rule = new Rule(this, "AudioUploadRule", new RuleProps
+        // ================================================================
+        // EventBridge Rule
+        // ================================================================
+
+        /// <summary>
+        /// Creates an EventBridge rule to detect new objects uploaded to the input bucket.
+        /// Filters by the specific input bucket name and "Object Created" events.
+        /// </summary>
+        private Rule CreateEventBridgeRule(Bucket inputBucket)
+        {
+            return new Rule(this, "AudioUploadRule", new RuleProps
             {
                 EventPattern = new EventPattern
                 {
@@ -74,14 +137,62 @@ namespace CdkBase
                     }
                 }
             });
+        }
 
-            // CloudWatch Log Group for state machine execution logs
-            var logGroup = new LogGroup(this, "StateMachineLogGroup", new Amazon.CDK.AWS.Logs.LogGroupProps
+        // ================================================================
+        // Logging
+        // ================================================================
+
+        /// <summary>
+        /// Creates the CloudWatch Log Group for state machine execution logs.
+        /// </summary>
+        private LogGroup CreateLogGroup()
+        {
+            return new LogGroup(this, "StateMachineLogGroup", new Amazon.CDK.AWS.Logs.LogGroupProps
             {
                 Retention = RetentionDays.TWO_WEEKS,
                 RemovalPolicy = RemovalPolicy.DESTROY
             });
+        }
 
+        // ================================================================
+        // Notifications
+        // ================================================================
+
+        /// <summary>
+        /// Creates SNS topics for pipeline completion and failure notifications,
+        /// both encrypted with the default AWS-managed SNS KMS key.
+        /// </summary>
+        private (Topic completedTopic, Topic failedTopic) CreateNotificationTopics()
+        {
+            var completedTopic = new Topic(this, "SleepAudioPipelineCompleted", new TopicProps
+            {
+                MasterKey = Amazon.CDK.AWS.KMS.Alias.FromAliasName(this, "SnsCompletedKey", "alias/aws/sns")
+            });
+
+            var failedTopic = new Topic(this, "SleepAudioPipelineFailed", new TopicProps
+            {
+                MasterKey = Amazon.CDK.AWS.KMS.Alias.FromAliasName(this, "SnsFailedKey", "alias/aws/sns")
+            });
+
+            return (completedTopic, failedTopic);
+        }
+
+        // ================================================================
+        // Processing Steps (State Machine Tasks)
+        // ================================================================
+
+        /// <summary>
+        /// Creates all Step Functions task states for the audio processing pipeline,
+        /// including DynamoDB operations, Lambda invocation, Polly synthesis, and SNS notifications.
+        /// Also grants necessary IAM permissions to the Lambda function.
+        /// </summary>
+        private (DynamoPutItem writeInitialMetadata, LambdaInvoke processAudioTask, CustomState pollyTask,
+            DynamoUpdateItem updateStatusCompleted, DynamoUpdateItem updateStatusFailed,
+            SnsPublish publishSuccess, SnsPublish publishFailure)
+            CreateProcessingSteps(Table metadataTable, Bucket inputBucket, Bucket outputBucket,
+                Topic completedTopic, Topic failedTopic)
+        {
             // DynamoDB PutItem task - Write initial metadata record
             var writeInitialMetadata = new DynamoPutItem(this, "WriteInitialMetadata", new DynamoPutItemProps
             {
@@ -127,32 +238,7 @@ namespace CdkBase
             });
 
             // Lambda function for audio processing (metadata enrichment and validation)
-            var lambdaAssetPath = Path.GetFullPath(
-                Path.Combine(Path.GetDirectoryName(GetSourceFilePath()), "lambda", "process_audio"));
-            var processorFunction = new Function(this, "SleepAudioProcessorFunction", new FunctionProps
-            {
-                Runtime = Runtime.PYTHON_3_12,
-                Handler = "index.handler",
-                Code = Code.FromAsset(lambdaAssetPath),
-                Timeout = Duration.Seconds(30),
-                MemorySize = 512,
-                Tracing = Tracing.ACTIVE,
-                Environment = new Dictionary<string, string>
-                {
-                    { "TABLE_NAME", metadataTable.TableName },
-                    { "INPUT_BUCKET_NAME", inputBucket.BucketName },
-                    { "OUTPUT_BUCKET_NAME", outputBucket.BucketName }
-                }
-            });
-
-            // Grant the Lambda DynamoDB read/write access
-            metadataTable.GrantReadWriteData(processorFunction);
-
-            // Grant the Lambda S3 read access on the input bucket (download input files)
-            inputBucket.GrantRead(processorFunction);
-
-            // Grant the Lambda S3 write access on the output bucket (upload processed files)
-            outputBucket.GrantWrite(processorFunction);
+            var processorFunction = CreateProcessorFunction(metadataTable, inputBucket, outputBucket);
 
             // LambdaInvoke task for ProcessAudio step in the state machine
             var processAudioTask = new LambdaInvoke(this, "ProcessAudio", new LambdaInvokeProps
@@ -204,18 +290,6 @@ namespace CdkBase
                 ResultPath = "$.updateResult"
             });
 
-            // SNS Topic for pipeline completion notifications
-            var completedTopic = new Topic(this, "SleepAudioPipelineCompleted", new TopicProps
-            {
-                MasterKey = Amazon.CDK.AWS.KMS.Alias.FromAliasName(this, "SnsCompletedKey", "alias/aws/sns")
-            });
-
-            // SNS Topic for pipeline failure notifications
-            var failedTopic = new Topic(this, "SleepAudioPipelineFailed", new TopicProps
-            {
-                MasterKey = Amazon.CDK.AWS.KMS.Alias.FromAliasName(this, "SnsFailedKey", "alias/aws/sns")
-            });
-
             // SNS Publish task for success notification
             var publishSuccess = new SnsPublish(this, "PublishSuccessNotification", new SnsPublishProps
             {
@@ -243,6 +317,64 @@ namespace CdkBase
                 ResultPath = "$.snsFailResult"
             });
 
+            return (writeInitialMetadata, processAudioTask, pollyTask,
+                updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure);
+        }
+
+        /// <summary>
+        /// Creates the Lambda function for audio processing with appropriate permissions.
+        /// Grants DynamoDB read/write, S3 read on input bucket, and S3 write on output bucket.
+        /// </summary>
+        private Function CreateProcessorFunction(Table metadataTable, Bucket inputBucket, Bucket outputBucket)
+        {
+            var lambdaAssetPath = Path.GetFullPath(
+                Path.Combine(Path.GetDirectoryName(GetSourceFilePath()), "lambda", "process_audio"));
+            var processorFunction = new Function(this, "SleepAudioProcessorFunction", new FunctionProps
+            {
+                Runtime = Runtime.PYTHON_3_12,
+                Handler = "index.handler",
+                Code = Code.FromAsset(lambdaAssetPath),
+                Timeout = Duration.Seconds(30),
+                MemorySize = 512,
+                Tracing = Tracing.ACTIVE,
+                Environment = new Dictionary<string, string>
+                {
+                    { "TABLE_NAME", metadataTable.TableName },
+                    { "INPUT_BUCKET_NAME", inputBucket.BucketName },
+                    { "OUTPUT_BUCKET_NAME", outputBucket.BucketName }
+                }
+            });
+
+            // Grant the Lambda DynamoDB read/write access
+            metadataTable.GrantReadWriteData(processorFunction);
+
+            // Grant the Lambda S3 read access on the input bucket (download input files)
+            inputBucket.GrantRead(processorFunction);
+
+            // Grant the Lambda S3 write access on the output bucket (upload processed files)
+            outputBucket.GrantWrite(processorFunction);
+
+            return processorFunction;
+        }
+
+        // ================================================================
+        // State Machine
+        // ================================================================
+
+        /// <summary>
+        /// Assembles and creates the Step Functions state machine with the complete
+        /// processing chain, error handling (retry + catch), and logging configuration.
+        /// </summary>
+        private StateMachine CreateStateMachine(
+            LogGroup logGroup,
+            DynamoPutItem writeInitialMetadata,
+            LambdaInvoke processAudioTask,
+            CustomState pollyTask,
+            DynamoUpdateItem updateStatusCompleted,
+            DynamoUpdateItem updateStatusFailed,
+            SnsPublish publishSuccess,
+            SnsPublish publishFailure)
+        {
             // Add retry to failure path tasks to handle transient errors
             updateStatusFailed.AddRetry(new RetryProps
             {
@@ -302,6 +434,35 @@ namespace CdkBase
                 .Next(validateInput);
 
             // Add error handling - catch all errors and transition to UpdateStatusFailed
+            ConfigureErrorHandling(writeInitialMetadata, processAudioTask, pollyTask,
+                updateStatusCompleted, publishSuccess, updateStatusFailed);
+
+            // Step Functions State Machine for sleep audio processing pipeline
+            return new StateMachine(this, "SleepAudioPipelineStateMachine", new StateMachineProps
+            {
+                DefinitionBody = DefinitionBody.FromChainable(chain),
+                Logs = new LogOptions
+                {
+                    Destination = logGroup,
+                    Level = LogLevel.ALL,
+                    IncludeExecutionData = true
+                },
+                TracingEnabled = true
+            });
+        }
+
+        /// <summary>
+        /// Configures retry and catch policies for all task states in the pipeline.
+        /// Each task retries on transient errors and catches all errors to route to the failure path.
+        /// </summary>
+        private void ConfigureErrorHandling(
+            DynamoPutItem writeInitialMetadata,
+            LambdaInvoke processAudioTask,
+            CustomState pollyTask,
+            DynamoUpdateItem updateStatusCompleted,
+            SnsPublish publishSuccess,
+            DynamoUpdateItem updateStatusFailed)
+        {
             writeInitialMetadata.AddRetry(new RetryProps
             {
                 Errors = new[] { "States.ALL" },
@@ -358,20 +519,14 @@ namespace CdkBase
                 Errors = new[] { "States.ALL" },
                 ResultPath = "$.error"
             });
+        }
 
-            // Step Functions State Machine for sleep audio processing pipeline
-            var stateMachine = new StateMachine(this, "SleepAudioPipelineStateMachine", new StateMachineProps
-            {
-                DefinitionBody = DefinitionBody.FromChainable(chain),
-                Logs = new LogOptions
-                {
-                    Destination = logGroup,
-                    Level = LogLevel.ALL,
-                    IncludeExecutionData = true
-                },
-                TracingEnabled = true
-            });
-
+        /// <summary>
+        /// Grants the state machine execution role permissions for Polly, DynamoDB, and SNS.
+        /// </summary>
+        private void ConfigureStateMachinePermissions(
+            StateMachine stateMachine, Table metadataTable, Topic completedTopic, Topic failedTopic)
+        {
             // Grant Polly permissions to the state machine execution role
             // Resources: * is required because Polly SynthesizeSpeech does not support resource-level permissions
             stateMachine.AddToRolePolicy(new PolicyStatement(new PolicyStatementProps
@@ -386,10 +541,18 @@ namespace CdkBase
             // Grant SNS publish permissions to the state machine
             completedTopic.GrantPublish(stateMachine);
             failedTopic.GrantPublish(stateMachine);
+        }
 
-            // Wire EventBridge rule to target the state machine
-            rule.AddTarget(new SfnStateMachine(stateMachine));
+        // ================================================================
+        // Alarms and Dashboard
+        // ================================================================
 
+        /// <summary>
+        /// Creates CloudWatch alarms for state machine failures and Lambda errors,
+        /// plus an operational dashboard showing execution and performance metrics.
+        /// </summary>
+        private void CreateAlarmsAndDashboard(StateMachine stateMachine, Topic failedTopic, Function processorFunction)
+        {
             // CloudWatch Alarm: State Machine Execution Failures
             var executionFailedMetric = stateMachine.MetricFailed(new Amazon.CDK.AWS.CloudWatch.MetricOptions
             {
@@ -453,6 +616,20 @@ namespace CdkBase
                     }
                 }
             });
+        }
+
+        // ================================================================
+        // Utilities
+        // ================================================================
+
+        /// <summary>
+        /// Retrieves the Lambda function from a LambdaInvoke task for use in alarm configuration.
+        /// </summary>
+        private Function GetProcessorFunction(LambdaInvoke processAudioTask)
+        {
+            // Access the Lambda function through the node tree
+            var functionNode = this.Node.FindChild("SleepAudioProcessorFunction");
+            return (Function)functionNode;
         }
 
         private static string GetSourceFilePath([System.Runtime.CompilerServices.CallerFilePath] string path = "")

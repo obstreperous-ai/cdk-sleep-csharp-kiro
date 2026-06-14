@@ -252,6 +252,63 @@ This structure eliminates ambiguity and provides clear boundaries for autonomous
 
 ---
 
+## Reflections
+
+### TDD for CDK Infrastructure
+
+Test-driven development proved exceptionally effective for infrastructure-as-code. CDK Assertions provide millisecond-level feedback on CloudFormation output without requiring AWS deployment, making the Red-Green-Refactor cycle as fast as application-level TDD. Writing failing tests first forced explicit articulation of expected resource configurations (encryption algorithms, IAM actions, state machine transitions) before any implementation code was written, catching misconfiguration early in the cycle rather than at deploy time.
+
+The key insight is that infrastructure tests validate the *contract* between your code and CloudFormation. A test asserting `"BillingMode": "PAY_PER_REQUEST"` on a DynamoDB table is not testing AWS functionality - it is testing that your CDK code produces the intended CloudFormation template. This distinction makes the feedback loop nearly instantaneous and eliminates the 2-5 minute deployment cycles that traditionally slow infrastructure development.
+
+### JSII Constraints and Serial Test Execution
+
+The .NET/JSII bridge introduces unique constraints that shaped the test architecture. JSII maintains a single JavaScript runtime process that CDK constructs communicate with via stdio. Under parallel test execution, multiple threads synthesizing CDK stacks simultaneously cause memory pressure and non-deterministic failures. The solution was enforcing serial execution via `xunit.runner.json` (`parallelizeTestCollections: false`, `maxParallelThreads: 1`).
+
+This constraint made test execution time proportional to the number of stack syntheses. With 70 tests in `CdkBaseStackTest` each creating a fresh App/Stack, the original design performed 70 separate JSII synthesis operations. Understanding this pressure drove the optimization to shared fixtures.
+
+### Test Performance Optimization via Shared Fixtures
+
+The `IClassFixture<T>` pattern in xUnit allows a single synthesis to serve all tests in a class. `EndToEndValidationTest` (56 tests) and `CdkBaseStackTest` (majority of 70 tests) each synthesize exactly once, with the Template and serialized state machine JSON shared across all test methods via constructor injection.
+
+Tests that require different stack configurations (e.g., `[Theory]` tests with `[InlineData("dev")]`, `[InlineData("staging")]`, `[InlineData("prod")]`) still create their own stacks, since they test environment-specific behavior. Tests that call `app.Synth()` (like tag verification) also need fresh instances. The fixture pattern reduced total synthesis operations from ~130 to approximately 12 (1 shared per fixture class + individual Theory/Synth tests).
+
+### AI-Assisted Infrastructure Development
+
+Several patterns emerged from building this pipeline entirely through AI-assisted, issue-driven development:
+
+1. **Structured issues eliminate ambiguity.** When issues contain explicit acceptance criteria, ordered tasks, and success metrics, the AI agent can implement features independently without back-and-forth clarification.
+
+2. **Architecture-first documentation provides guardrails.** Having `ARCHITECTURE.md` as a reference prevented the agent from making design decisions during implementation, keeping the system coherent across 12 separate implementation PRs.
+
+3. **Context propagation is essential.** The `.agents/tasks/` directory structure maintained findings (JSII memory issues, NODE_OPTIONS conflicts, serial execution requirements) across sessions, preventing the same problems from being re-discovered.
+
+4. **Incremental complexity works well.** Building from a skeleton (Issue 1) through storage (Issue 3), orchestration (Issue 4), data (Issue 5), and finally validation (Issue 12) allowed each increment to be tested and verified independently.
+
+### String Serialization for State Machine Testing
+
+Testing Step Functions state machine definitions required a pragmatic approach. CDK synthesizes the state machine definition as a nested JSON structure within the CloudFormation template, often split across `Fn::Join` boundaries. Two approaches were used:
+
+- **Template-level assertions** (`HasResourceProperties`, `ResourceCountIs`) for resource existence and simple properties
+- **String-based assertions** (`Assert.Contains`) on the serialized JSON for state machine wiring (transitions, error handling, retry configuration)
+
+The string approach trades resilience to CDK serialization format changes for strong regression coverage and readable test assertions. If CDK changes how it serializes state machine definitions (e.g., reordering JSON keys), tests may break even though the infrastructure is correct. This is an acceptable trade-off for a project using a pinned CDK version, but teams on rolling updates should consider ASL (Amazon States Language) parsing or structured JSON assertions instead.
+
+### Recommendations for Future Iterations
+
+1. **Consider ASL-level assertions.** Parsing the state machine definition into a structured ASL model would make tests more resilient to CDK serialization changes while maintaining strong coverage.
+
+2. **Add integration tests.** The current suite validates CloudFormation output but not runtime behavior. A small set of integration tests deploying to a sandbox account would validate the pipeline end-to-end.
+
+3. **Explore CDK Aspects for cross-cutting concerns.** Encryption, tagging, and removal policies are currently applied per-resource. CDK Aspects could enforce these as stack-wide policies, reducing repetition.
+
+4. **Monitor JSII improvements.** The serial execution constraint may be relaxed in future JSII versions. Periodically re-testing parallel execution could unlock faster test runs as the runtime matures.
+
+5. **Extract reusable constructs.** The audio processing pipeline pattern (EventBridge trigger, Step Functions orchestration, Lambda processing, DynamoDB tracking, SNS notification) could be generalized into an L3 construct for reuse across similar event-driven workloads.
+
+6. **Add property-based testing.** For input validation logic, property-based testing (random file extensions, edge cases) could complement the existing example-based tests and catch corner cases.
+
+---
+
 ## Related Documentation
 
 | Document | Description |
