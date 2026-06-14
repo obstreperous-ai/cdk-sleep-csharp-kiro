@@ -50,15 +50,14 @@ namespace CdkBase
             var rule = CreateEventBridgeRule(inputBucket);
             var logGroup = CreateLogGroup();
             var (completedTopic, failedTopic) = CreateNotificationTopics();
-            var (writeInitialMetadata, processAudioTask, pollyTask, updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure) =
+            var (writeInitialMetadata, processAudioTask, pollyTask, updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure, processorFunction) =
                 CreateProcessingSteps(metadataTable, inputBucket, outputBucket, completedTopic, failedTopic);
             var stateMachine = CreateStateMachine(
                 logGroup, writeInitialMetadata, processAudioTask, pollyTask,
                 updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure);
             ConfigureStateMachinePermissions(stateMachine, metadataTable, completedTopic, failedTopic);
             rule.AddTarget(new SfnStateMachine(stateMachine));
-            CreateAlarmsAndDashboard(stateMachine, failedTopic,
-                GetProcessorFunction(processAudioTask));
+            CreateAlarmsAndDashboard(stateMachine, failedTopic, processorFunction);
         }
 
         // ================================================================
@@ -189,7 +188,7 @@ namespace CdkBase
         /// </summary>
         private (DynamoPutItem writeInitialMetadata, LambdaInvoke processAudioTask, CustomState pollyTask,
             DynamoUpdateItem updateStatusCompleted, DynamoUpdateItem updateStatusFailed,
-            SnsPublish publishSuccess, SnsPublish publishFailure)
+            SnsPublish publishSuccess, SnsPublish publishFailure, Function processorFunction)
             CreateProcessingSteps(Table metadataTable, Bucket inputBucket, Bucket outputBucket,
                 Topic completedTopic, Topic failedTopic)
         {
@@ -318,7 +317,7 @@ namespace CdkBase
             });
 
             return (writeInitialMetadata, processAudioTask, pollyTask,
-                updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure);
+                updateStatusCompleted, updateStatusFailed, publishSuccess, publishFailure, processorFunction);
         }
 
         /// <summary>
@@ -621,16 +620,6 @@ namespace CdkBase
         // ================================================================
         // Utilities
         // ================================================================
-
-        /// <summary>
-        /// Retrieves the Lambda function from a LambdaInvoke task for use in alarm configuration.
-        /// </summary>
-        private Function GetProcessorFunction(LambdaInvoke processAudioTask)
-        {
-            // Access the Lambda function through the node tree
-            var functionNode = this.Node.FindChild("SleepAudioProcessorFunction");
-            return (Function)functionNode;
-        }
 
         private static string GetSourceFilePath([System.Runtime.CompilerServices.CallerFilePath] string path = "")
         {
