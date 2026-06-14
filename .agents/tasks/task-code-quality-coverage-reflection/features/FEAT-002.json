@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "refactor",
   "description": "Code quality improvements: refactor CdkBaseStack.cs for modularity and readability, optimize CdkBaseStackTest.cs to use shared fixtures like EndToEndValidationTest, add XML doc comments, improve naming, add CI coverage reporting, and add a Reflections section to EXPERIMENT.md",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In src/CdkBase.Tests/CdkBaseStackTest.cs: Add an IClassFixture pattern (similar to EndToEndValidationFixture in EndToEndValidationTest.cs) to share a single synthesized Template across all 70 tests instead of creating a new App/Stack for each test. Create a CdkBaseStackFixture class with Template and serialized state machine JSON. Update CdkBaseStackTest to implement IClassFixture<CdkBaseStackFixture> and use shared template. Keep the Theory tests that need different environments as separate methods that create their own stacks. This reduces test execution time significantly.",
     "In src/CdkBase/CdkBaseStack.cs: Extract logical sections into private helper methods for readability - e.g. CreateStorageBuckets(), CreateMetadataTable(), CreateStateMachine(), CreateAlarms(), CreateDashboard(). Add XML documentation comments to the class and constructor. Keep it in one file but organize with clear method boundaries and region comments.",
@@ -29,5 +29,5 @@
     "unset NODE_OPTIONS && npx cdk synth -c environment=prod"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 129 C# tests pass after refactoring. The shared fixture pattern reduced CdkBaseStackTest from 70 stack syntheses to 1 shared + 7 individual (Theory tests and app.Synth tests). Total test execution time dropped from ~6s. Build produces 0 warnings/0 errors. CDK synth verified for default, dev, and prod. Python tests (19) all pass with type hints added. The GetProcessorFunction helper method uses Node.FindChild to retrieve the Lambda function reference for alarms."
 }
