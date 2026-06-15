@@ -7,52 +7,70 @@ using Xunit;
 
 namespace CdkBase.Tests
 {
+    /// <summary>
+    /// Shared fixture that synthesizes the CDK template once for all CdkBaseStack tests.
+    /// Uses xUnit's IClassFixture pattern to avoid repeated JSII template synthesis (70 times).
+    /// This dramatically reduces test execution time under JSII memory pressure.
+    /// </summary>
+    public class CdkBaseStackFixture
+    {
+        private static readonly JsonSerializerOptions RelaxedOptions = new JsonSerializerOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+
+        public Template Template { get; }
+        public string StateMachineJson { get; }
+        public string StateMachineJsonRelaxed { get; }
+
+        public CdkBaseStackFixture()
+        {
+            var app = new App();
+            var stack = new CdkBaseStack(app, "TestStack");
+            Template = Template.FromStack(stack);
+
+            var stateMachines = Template.FindResources("AWS::StepFunctions::StateMachine");
+            StateMachineJson = JsonSerializer.Serialize(stateMachines.First().Value);
+            StateMachineJsonRelaxed = JsonSerializer.Serialize(stateMachines.First().Value, RelaxedOptions);
+        }
+    }
+
     // Tests use string-matching against serialized CloudFormation templates to assert on
     // state machine wiring. This couples tests to CDK's JSON serialization order, which is
     // a known trade-off: it provides strong regression coverage for the current CDK version
     // at the cost of potential breakage on CDK upgrades that reorder JSON properties.
-    public class CdkBaseStackTest
+    public class CdkBaseStackTest : IClassFixture<CdkBaseStackFixture>
     {
+        private readonly Template _template;
+        private readonly string _serialized;
+        private readonly string _serializedRelaxed;
+
+        public CdkBaseStackTest(CdkBaseStackFixture fixture)
+        {
+            _template = fixture.Template;
+            _serialized = fixture.StateMachineJson;
+            _serializedRelaxed = fixture.StateMachineJsonRelaxed;
+        }
+
         [Fact]
         public void Stack_SynthesizesSuccessfully()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert
-            Assert.NotNull(template);
+            Assert.NotNull(_template);
         }
 
         [Fact]
         public void Stack_HasExactlyTwoS3Buckets()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert
-            template.ResourceCountIs("AWS::S3::Bucket", 2);
+            _template.ResourceCountIs("AWS::S3::Bucket", 2);
         }
 
         [Fact]
         public void Stack_HasInputBucketWithKmsEncryption()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - find buckets by logical ID to distinguish input from output
-            var buckets = template.FindResources("AWS::S3::Bucket");
+            var buckets = _template.FindResources("AWS::S3::Bucket");
             var inputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioInputBucket"));
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(inputBucketEntry.Value))
                 .GetProperty("Properties");
@@ -71,15 +89,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasInputBucketWithVersioningEnabled()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - find input bucket by logical ID
-            var buckets = template.FindResources("AWS::S3::Bucket");
+            var buckets = _template.FindResources("AWS::S3::Bucket");
             var inputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioInputBucket"));
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(inputBucketEntry.Value))
                 .GetProperty("Properties");
@@ -95,15 +106,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasOutputBucketWithEncryptionAndVersioning()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - find output bucket by logical ID
-            var buckets = template.FindResources("AWS::S3::Bucket");
+            var buckets = _template.FindResources("AWS::S3::Bucket");
             var outputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioOutputBucket"));
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(outputBucketEntry.Value))
                 .GetProperty("Properties");
@@ -126,15 +130,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_BucketsBlockPublicAccess()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify both buckets block public access by logical ID
-            var buckets = template.FindResources("AWS::S3::Bucket");
+            var buckets = _template.FindResources("AWS::S3::Bucket");
 
             var inputBucketEntry = buckets.First(b => b.Key.Contains("SleepAudioInputBucket"));
             var inputProps = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(inputBucketEntry.Value))
@@ -158,15 +155,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasEventBridgeRuleForS3ObjectCreated()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify EventBridge rule exists with correct event pattern
-            template.HasResourceProperties("AWS::Events::Rule", new Dictionary<string, object>
+            _template.HasResourceProperties("AWS::Events::Rule", new Dictionary<string, object>
             {
                 { "EventPattern", new Dictionary<string, object>
                     {
@@ -180,15 +170,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_EventBridgeRuleFiltersByInputBucketName()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the EventBridge rule detail filter references the input bucket
-            var rules = template.FindResources("AWS::Events::Rule");
+            var rules = _template.FindResources("AWS::Events::Rule");
             Assert.Single(rules);
 
             var ruleEntry = rules.First();
@@ -211,15 +194,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_EventBridgeRuleHasTarget()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify EventBridge rule has at least one target
-            template.HasResourceProperties("AWS::Events::Rule", new Dictionary<string, object>
+            _template.HasResourceProperties("AWS::Events::Rule", new Dictionary<string, object>
             {
                 { "Targets", Match.AnyValue() }
             });
@@ -228,51 +204,27 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasStepFunctionsStateMachine()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify exactly one state machine exists
-            template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
+            _template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
         }
 
         [Fact]
         public void Stack_StateMachineHasDefinitionWithPollyTask()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - find the state machine and verify its definition contains Polly task
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var stateMachineEntry = stateMachines.First();
-            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
-
             // Verify the definition contains the SynthesizeSpeech state and Polly resource
-            Assert.Contains("SynthesizeSpeech", serialized);
-            Assert.Contains("arn:aws:states:::aws-sdk:polly:synthesizeSpeech", serialized);
+            Assert.Contains("SynthesizeSpeech", _serialized);
+            Assert.Contains("arn:aws:states:::aws-sdk:polly:synthesizeSpeech", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineHasLoggingEnabled()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify state machine has logging configuration
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
             var stateMachineEntry = stateMachines.First();
@@ -290,15 +242,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_EventBridgeRuleTargetsStateMachine()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify EventBridge rule targets the state machine (not SQS)
-            var rules = template.FindResources("AWS::Events::Rule");
+            var rules = _template.FindResources("AWS::Events::Rule");
             Assert.Single(rules);
 
             var ruleEntry = rules.First();
@@ -313,15 +258,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineRoleHasPollyPermissions()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify IAM policies include polly:SynthesizeSpeech
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
 
             Assert.Contains("polly:SynthesizeSpeech", policiesJson);
@@ -330,15 +268,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineRoleHasCloudWatchLogsPermissions()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify IAM policies include CloudWatch Logs permissions
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
 
             Assert.Contains("logs:CreateLogDelivery", policiesJson);
@@ -347,29 +278,15 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasDynamoDbMetadataTable()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify exactly one DynamoDB table exists
-            template.ResourceCountIs("AWS::DynamoDB::Table", 1);
+            _template.ResourceCountIs("AWS::DynamoDB::Table", 1);
         }
 
         [Fact]
         public void Stack_DynamoDbTableHasCorrectKeySchema()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify partition key is 'audioId' of type S
-            var tables = template.FindResources("AWS::DynamoDB::Table");
+            var tables = _template.FindResources("AWS::DynamoDB::Table");
             Assert.Single(tables);
 
             var tableEntry = tables.First();
@@ -390,15 +307,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_DynamoDbTableHasOnDemandBilling()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify BillingMode is PAY_PER_REQUEST
-            template.HasResourceProperties("AWS::DynamoDB::Table", new Dictionary<string, object>
+            _template.HasResourceProperties("AWS::DynamoDB::Table", new Dictionary<string, object>
             {
                 { "BillingMode", "PAY_PER_REQUEST" }
             });
@@ -407,15 +317,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_DynamoDbTableHasEncryption()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify SSESpecification Enabled is true
-            var tables = template.FindResources("AWS::DynamoDB::Table");
+            var tables = _template.FindResources("AWS::DynamoDB::Table");
             Assert.Single(tables);
 
             var tableEntry = tables.First();
@@ -429,15 +332,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_DynamoDbTableHasPointInTimeRecovery()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify PointInTimeRecoverySpecification PointInTimeRecoveryEnabled is true
-            var tables = template.FindResources("AWS::DynamoDB::Table");
+            var tables = _template.FindResources("AWS::DynamoDB::Table");
             Assert.Single(tables);
 
             var tableEntry = tables.First();
@@ -454,85 +350,48 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineDefinitionContainsDynamoDbPutItem()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify state machine definition contains DynamoDB PutItem resource
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var stateMachineEntry = stateMachines.First();
-            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
-
             // CDK splits the ARN across Fn::Join boundaries, so check for the resource suffix
-            Assert.Contains(":states:::dynamodb:putItem", serialized);
+            Assert.Contains(":states:::dynamodb:putItem", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionContainsDynamoDbUpdateItem()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify state machine definition contains DynamoDB UpdateItem resource
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var stateMachineEntry = stateMachines.First();
-            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
-
             // CDK splits the ARN across Fn::Join boundaries, so check for the resource suffix
-            Assert.Contains(":states:::dynamodb:updateItem", serialized);
+            Assert.Contains(":states:::dynamodb:updateItem", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionHasCorrectStateOrdering()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify state machine definition contains all expected states
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var stateMachineEntry = stateMachines.First();
-            var serialized = JsonSerializer.Serialize(stateMachineEntry.Value);
-
             // Verify all states exist in the definition
-            Assert.Contains("WriteInitialMetadata", serialized);
-            Assert.Contains("ProcessAudio", serialized);
-            Assert.Contains("SynthesizeSpeech", serialized);
-            Assert.Contains("UpdateStatusCompleted", serialized);
-            Assert.Contains("UpdateStatusFailed", serialized);
+            Assert.Contains("WriteInitialMetadata", _serialized);
+            Assert.Contains("ProcessAudio", _serialized);
+            Assert.Contains("SynthesizeSpeech", _serialized);
+            Assert.Contains("UpdateStatusCompleted", _serialized);
+            Assert.Contains("UpdateStatusFailed", _serialized);
 
             // Verify catch handlers exist (States.ALL error routing)
-            Assert.Contains("States.ALL", serialized);
+            Assert.Contains("States.ALL", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineRoleHasDynamoDbPermissions()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify IAM policies contain DynamoDB PutItem and UpdateItem actions
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
 
             Assert.Contains("dynamodb:PutItem", policiesJson);
@@ -542,20 +401,13 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasTwoSnsTopics()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-            template.ResourceCountIs("AWS::SNS::Topic", 2);
+            _template.ResourceCountIs("AWS::SNS::Topic", 2);
         }
 
         [Fact]
         public void Stack_SnsTopicsHaveKmsEncryption()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var topics = template.FindResources("AWS::SNS::Topic");
+            var topics = _template.FindResources("AWS::SNS::Topic");
             Assert.Equal(2, topics.Count);
 
             foreach (var topic in topics)
@@ -570,40 +422,26 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineDefinitionContainsSnsPublishTasks()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
-            Assert.Contains(":states:::sns:publish", serialized);
+            Assert.Contains(":states:::sns:publish", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineHasSuccessAndFailureNotificationStates()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
-            Assert.Contains("PublishSuccessNotification", serialized);
-            Assert.Contains("PublishFailureNotification", serialized);
+            Assert.Contains("PublishSuccessNotification", _serialized);
+            Assert.Contains("PublishFailureNotification", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineRoleHasSnsPublishPermissions()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
             Assert.Contains("sns:Publish", policiesJson);
         }
@@ -611,56 +449,37 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineErrorPathIncludesErrorInfo()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
             // Verify the FAILED update includes errorInfo in the update expression
-            Assert.Contains("errorInfo", serialized);
+            Assert.Contains("errorInfo", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionHasCorrectStateWiring()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
-
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
 
             // Verify success path ordering:
             // WriteInitialMetadata -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
-            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", serialized);
-            Assert.Contains("\\\"Next\\\":\\\"SynthesizeSpeech\\\"", serialized);
-            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", _serializedRelaxed);
+            Assert.Contains("\\\"Next\\\":\\\"SynthesizeSpeech\\\"", _serializedRelaxed);
+            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", _serializedRelaxed);
 
             // Verify failure path ordering: UpdateStatusFailed -> PublishFailureNotification
-            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", _serializedRelaxed);
 
             // Verify catch routing targets UpdateStatusFailed
-            Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_HasLambdaFunctionWithPythonRuntime()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify a Lambda function exists with Python runtime
-            template.HasResourceProperties("AWS::Lambda::Function", new Dictionary<string, object>
+            _template.HasResourceProperties("AWS::Lambda::Function", new Dictionary<string, object>
             {
                 { "Runtime", "python3.12" },
                 { "Handler", "index.handler" }
@@ -670,12 +489,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_LambdaFunctionHasTableNameEnvironmentVariable()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the Lambda function has TABLE_NAME environment variable
-            var functions = template.FindResources("AWS::Lambda::Function");
+            var functions = _template.FindResources("AWS::Lambda::Function");
             var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
 
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
@@ -689,28 +504,19 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineDefinitionContainsLambdaInvokeTask()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify state machine definition contains a LambdaInvoke task
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
-            Assert.Contains("ProcessAudio", serialized);
-            Assert.Contains(":states:::lambda:invoke", serialized);
+            Assert.Contains("ProcessAudio", _serialized);
+            Assert.Contains(":states:::lambda:invoke", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineRoleHasLambdaInvokePermission()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify IAM policies grant lambda:InvokeFunction to the state machine
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
 
             Assert.Contains("lambda:InvokeFunction", policiesJson);
@@ -719,12 +525,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_LambdaExecutionRoleHasDynamoDbReadWritePermissions()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify IAM policies grant the Lambda DynamoDB read/write permissions
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
             var policiesJson = JsonSerializer.Serialize(policies);
 
             // GrantReadWriteData gives BatchGetItem, GetItem, Query, Scan, BatchWriteItem,
@@ -737,120 +539,68 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_ProcessAudioStepHasErrorHandling()
         {
-            var app = new App();
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
-
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
 
             // Verify ProcessAudio state has a Catch block
             // The ProcessAudio state should have "Catch" with "States.ALL" routing to UpdateStatusFailed
-            Assert.Contains("ProcessAudio", serialized);
+            Assert.Contains("ProcessAudio", _serializedRelaxed);
 
-            // Check that the serialized definition has a Catch on ProcessAudio routing to UpdateStatusFailed
             // ProcessAudio state should have Catch with ErrorEquals: States.ALL and Next: UpdateStatusFailed
-            var processAudioIdx = serialized.IndexOf("ProcessAudio");
+            var processAudioIdx = _serializedRelaxed.IndexOf("ProcessAudio");
             Assert.True(processAudioIdx >= 0, "ProcessAudio state not found in definition");
 
             // The state definition must include Catch with States.ALL
             // Since multiple states have Catch, just verify ProcessAudio exists and the overall definition
             // has the expected error handling pattern
-            Assert.Contains("States.ALL", serialized);
+            Assert.Contains("States.ALL", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionContainsValidateInputState()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify state machine definition contains a ValidateInput Choice state
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
-            Assert.Contains("ValidateInput", serialized);
-            Assert.Contains("Choice", serialized);
+            Assert.Contains("ValidateInput", _serialized);
+            Assert.Contains("Choice", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionHasValidationErrorPath()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify ValidateInput has a Default path to ValidationFailed Pass state
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // The Choice state's Default path should route to ValidationFailed
-            Assert.Contains("\\\"Default\\\":\\\"ValidationFailed\\\"", serialized);
+            Assert.Contains("\\\"Default\\\":\\\"ValidationFailed\\\"", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionHasValidationFailedPassState()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the ValidationFailed Pass state exists with synthetic error payload
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Verify the ValidationFailed state exists and is a Pass type
-            Assert.Contains("ValidationFailed", serialized);
+            Assert.Contains("ValidationFailed", _serializedRelaxed);
             // Verify it transitions to UpdateStatusFailed
-            Assert.Contains("\\\"ValidationFailed\\\"", serialized);
+            Assert.Contains("\\\"ValidationFailed\\\"", _serializedRelaxed);
             // Verify it injects error payload with Cause
-            Assert.Contains("Unsupported file extension", serialized);
-            Assert.Contains("ValidationError", serialized);
+            Assert.Contains("Unsupported file extension", _serializedRelaxed);
+            Assert.Contains("ValidationError", _serializedRelaxed);
             // Verify ResultPath is $.error
-            Assert.Contains("$.error", serialized);
+            Assert.Contains("$.error", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_LambdaFunctionHasInputBucketEnvironmentVariable()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the Lambda function has INPUT_BUCKET_NAME environment variable
-            var functions = template.FindResources("AWS::Lambda::Function");
+            var functions = _template.FindResources("AWS::Lambda::Function");
             var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
 
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
@@ -864,47 +614,27 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineDefinitionHasCompleteEndToEndFlow()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify complete chain: WriteInitialMetadata -> ValidateInput -> ProcessAudio -> SynthesizeSpeech -> UpdateStatusCompleted -> PublishSuccessNotification
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // WriteInitialMetadata transitions to ValidateInput
-            Assert.Contains("\\\"Next\\\":\\\"ValidateInput\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"ValidateInput\\\"", _serializedRelaxed);
             // ValidateInput valid path transitions to ProcessAudio
-            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", _serializedRelaxed);
             // ProcessAudio transitions to SynthesizeSpeech
-            Assert.Contains("\\\"Next\\\":\\\"SynthesizeSpeech\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"SynthesizeSpeech\\\"", _serializedRelaxed);
             // UpdateStatusCompleted transitions to PublishSuccessNotification
-            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"PublishSuccessNotification\\\"", _serializedRelaxed);
             // UpdateStatusFailed transitions to PublishFailureNotification
-            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"PublishFailureNotification\\\"", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_EventBridgeRuleTargetsStateMachineWithRoleArn()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify EventBridge rule target has a RoleArn
-            var rules = template.FindResources("AWS::Events::Rule");
+            var rules = _template.FindResources("AWS::Events::Rule");
             Assert.Single(rules);
 
             var ruleEntry = rules.First();
@@ -922,74 +652,39 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_InputValidationChecksFileExtension()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the state machine definition references file extension patterns
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value);
-
             // The Choice state should check for supported extensions (lowercase)
-            Assert.Contains("*.mp3", serialized);
-            Assert.Contains("*.wav", serialized);
-            Assert.Contains("*.ogg", serialized);
-            Assert.Contains("*.txt", serialized);
+            Assert.Contains("*.mp3", _serialized);
+            Assert.Contains("*.wav", _serialized);
+            Assert.Contains("*.ogg", _serialized);
+            Assert.Contains("*.txt", _serialized);
 
             // The Choice state should also check for uppercase extensions
-            Assert.Contains("*.MP3", serialized);
-            Assert.Contains("*.WAV", serialized);
-            Assert.Contains("*.OGG", serialized);
-            Assert.Contains("*.TXT", serialized);
+            Assert.Contains("*.MP3", _serialized);
+            Assert.Contains("*.WAV", _serialized);
+            Assert.Contains("*.OGG", _serialized);
+            Assert.Contains("*.TXT", _serialized);
         }
 
         [Fact]
         public void Stack_StateMachineDefinitionStartsWithWriteInitialMetadata()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the state machine StartAt is WriteInitialMetadata
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
-            Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", serialized);
+            Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_StateMachineHasExactlyNineStates()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the state machine has exactly 9 states
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
-
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
 
             // All 9 expected states must exist
             var expectedStates = new[]
@@ -1001,14 +696,14 @@ namespace CdkBase.Tests
 
             foreach (var state in expectedStates)
             {
-                Assert.Contains(state, serialized);
+                Assert.Contains(state, _serializedRelaxed);
             }
 
             // Count state Type declarations in the definition string
             // With UnsafeRelaxedJsonEscaping, the inner JSON string uses backslash-escaped quotes
-            int taskCount = System.Text.RegularExpressions.Regex.Matches(serialized, @"\\""Type\\"":\\""Task\\""").Count;
-            int choiceCount = System.Text.RegularExpressions.Regex.Matches(serialized, @"\\""Type\\"":\\""Choice\\""").Count;
-            int passCount = System.Text.RegularExpressions.Regex.Matches(serialized, @"\\""Type\\"":\\""Pass\\""").Count;
+            int taskCount = System.Text.RegularExpressions.Regex.Matches(_serializedRelaxed, @"\\""Type\\"":\\""Task\\""").Count;
+            int choiceCount = System.Text.RegularExpressions.Regex.Matches(_serializedRelaxed, @"\\""Type\\"":\\""Choice\\""").Count;
+            int passCount = System.Text.RegularExpressions.Regex.Matches(_serializedRelaxed, @"\\""Type\\"":\\""Pass\\""").Count;
 
             // Total should be 9: 7 Task + 1 Choice + 1 Pass
             Assert.Equal(9, taskCount + choiceCount + passCount);
@@ -1017,24 +712,11 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineErrorCatchHandlersRouteToUpdateStatusFailed()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify error catch handlers on WriteInitialMetadata, ProcessAudio,
             // SynthesizeSpeech, UpdateStatusCompleted, and PublishSuccessNotification
             // all route to UpdateStatusFailed
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
-
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
 
             var statesWithCatch = new[]
             {
@@ -1045,11 +727,11 @@ namespace CdkBase.Tests
             foreach (var stateName in statesWithCatch)
             {
                 // Find the state definition and verify it has a Catch with Next:UpdateStatusFailed
-                var stateIdx = serialized.IndexOf($"\\\"{stateName}\\\":");
+                var stateIdx = _serializedRelaxed.IndexOf($"\\\"{stateName}\\\":");
                 Assert.True(stateIdx >= 0, $"State {stateName} not found in definition");
 
                 // Get a chunk of the definition after this state
-                var chunk = serialized.Substring(stateIdx, System.Math.Min(1200, serialized.Length - stateIdx));
+                var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(1200, _serializedRelaxed.Length - stateIdx));
                 Assert.Contains("States.ALL", chunk);
                 Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", chunk);
             }
@@ -1058,28 +740,15 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_PublishFailureNotificationIsTerminalState()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify PublishFailureNotification has End:true
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Find PublishFailureNotification state and verify End:true
-            var stateIdx = serialized.IndexOf("\\\"PublishFailureNotification\\\":{");
+            var stateIdx = _serializedRelaxed.IndexOf("\\\"PublishFailureNotification\\\":{");
             Assert.True(stateIdx >= 0, "PublishFailureNotification state not found");
 
-            var chunk = serialized.Substring(stateIdx, System.Math.Min(300, serialized.Length - stateIdx));
+            var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(300, _serializedRelaxed.Length - stateIdx));
             Assert.Contains("\\\"End\\\":true", chunk);
             Assert.Contains("\\\"Type\\\":\\\"Task\\\"", chunk);
         }
@@ -1087,28 +756,15 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_PublishSuccessNotificationIsTerminalState()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify PublishSuccessNotification has End:true
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Find PublishSuccessNotification state and verify End:true
-            var stateIdx = serialized.IndexOf("\\\"PublishSuccessNotification\\\":{");
+            var stateIdx = _serializedRelaxed.IndexOf("\\\"PublishSuccessNotification\\\":{");
             Assert.True(stateIdx >= 0, "PublishSuccessNotification state not found");
 
-            var chunk = serialized.Substring(stateIdx, System.Math.Min(300, serialized.Length - stateIdx));
+            var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(300, _serializedRelaxed.Length - stateIdx));
             Assert.Contains("\\\"End\\\":true", chunk);
             Assert.Contains("\\\"Type\\\":\\\"Task\\\"", chunk);
         }
@@ -1116,73 +772,47 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_StateMachineCompleteSuccessPath()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the complete success path:
             // WriteInitialMetadata -> ValidateInput -> ProcessAudio -> SynthesizeSpeech
             // -> UpdateStatusCompleted -> PublishSuccessNotification (End)
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Verify StartAt
-            Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", serialized);
+            Assert.Contains("\\\"StartAt\\\":\\\"WriteInitialMetadata\\\"", _serializedRelaxed);
             // WriteInitialMetadata -> ValidateInput
-            Assert.Contains("\\\"WriteInitialMetadata\\\":{\\\"Next\\\":\\\"ValidateInput\\\"", serialized);
+            Assert.Contains("\\\"WriteInitialMetadata\\\":{\\\"Next\\\":\\\"ValidateInput\\\"", _serializedRelaxed);
             // ValidateInput routes valid to ProcessAudio (via Choice)
-            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", serialized);
+            Assert.Contains("\\\"Next\\\":\\\"ProcessAudio\\\"", _serializedRelaxed);
             // ProcessAudio -> SynthesizeSpeech
-            Assert.Contains("\\\"ProcessAudio\\\":{\\\"Next\\\":\\\"SynthesizeSpeech\\\"", serialized);
+            Assert.Contains("\\\"ProcessAudio\\\":{\\\"Next\\\":\\\"SynthesizeSpeech\\\"", _serializedRelaxed);
             // SynthesizeSpeech -> UpdateStatusCompleted
-            Assert.Contains("\\\"SynthesizeSpeech\\\":{\\\"Next\\\":\\\"UpdateStatusCompleted\\\"", serialized);
+            Assert.Contains("\\\"SynthesizeSpeech\\\":{\\\"Next\\\":\\\"UpdateStatusCompleted\\\"", _serializedRelaxed);
             // UpdateStatusCompleted -> PublishSuccessNotification
-            Assert.Contains("\\\"UpdateStatusCompleted\\\":{\\\"Next\\\":\\\"PublishSuccessNotification\\\"", serialized);
+            Assert.Contains("\\\"UpdateStatusCompleted\\\":{\\\"Next\\\":\\\"PublishSuccessNotification\\\"", _serializedRelaxed);
             // PublishSuccessNotification is terminal
-            Assert.Contains("\\\"PublishSuccessNotification\\\":{\\\"End\\\":true", serialized);
+            Assert.Contains("\\\"PublishSuccessNotification\\\":{\\\"End\\\":true", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_StateMachineCompleteFailurePath()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the failure path from ValidationFailed:
             // ValidationFailed -> UpdateStatusFailed -> PublishFailureNotification (End)
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // ValidateInput Default -> ValidationFailed
-            Assert.Contains("\\\"Default\\\":\\\"ValidationFailed\\\"", serialized);
+            Assert.Contains("\\\"Default\\\":\\\"ValidationFailed\\\"", _serializedRelaxed);
             // ValidationFailed -> UpdateStatusFailed
-            Assert.Contains("\\\"ValidationFailed\\\":{\\\"Type\\\":\\\"Pass\\\"", serialized);
-            var vfIdx = serialized.IndexOf("\\\"ValidationFailed\\\":{");
-            var vfChunk = serialized.Substring(vfIdx, System.Math.Min(400, serialized.Length - vfIdx));
+            Assert.Contains("\\\"ValidationFailed\\\":{\\\"Type\\\":\\\"Pass\\\"", _serializedRelaxed);
+            var vfIdx = _serializedRelaxed.IndexOf("\\\"ValidationFailed\\\":{");
+            var vfChunk = _serializedRelaxed.Substring(vfIdx, System.Math.Min(400, _serializedRelaxed.Length - vfIdx));
             Assert.Contains("\\\"Next\\\":\\\"UpdateStatusFailed\\\"", vfChunk);
             // UpdateStatusFailed -> PublishFailureNotification
-            Assert.Contains("\\\"UpdateStatusFailed\\\":{\\\"Next\\\":\\\"PublishFailureNotification\\\"", serialized);
+            Assert.Contains("\\\"UpdateStatusFailed\\\":{\\\"Next\\\":\\\"PublishFailureNotification\\\"", _serializedRelaxed);
             // PublishFailureNotification is terminal
-            Assert.Contains("\\\"PublishFailureNotification\\\":{\\\"End\\\":true", serialized);
+            Assert.Contains("\\\"PublishFailureNotification\\\":{\\\"End\\\":true", _serializedRelaxed);
         }
 
         [Theory]
@@ -1191,7 +821,7 @@ namespace CdkBase.Tests
         [InlineData("prod")]
         public void Stack_SynthesizesSuccessfullyWithEnvironmentContext(string environment)
         {
-            // Arrange
+            // Arrange - Theory tests need their own stack instances for different environments
             var app = new App(new AppProps
             {
                 Context = new Dictionary<string, object>
@@ -1212,16 +842,9 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_DefaultsToDevEnvironmentWhenNoContextProvided()
         {
-            // Arrange
-            var app = new App();
-
-            // Act - should work without environment parameter (backward compatible)
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
-            // Assert - stack synthesizes without error
-            Assert.NotNull(template);
-            template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
+            // Assert - shared fixture stack synthesizes without error (default = dev)
+            Assert.NotNull(_template);
+            _template.ResourceCountIs("AWS::StepFunctions::StateMachine", 1);
         }
 
         [Theory]
@@ -1230,7 +853,7 @@ namespace CdkBase.Tests
         [InlineData("prod")]
         public void Stack_HasEnvironmentTag(string environment)
         {
-            // Arrange
+            // Arrange - Theory tests need their own stack instances for different environments
             var app = new App(new AppProps
             {
                 Context = new Dictionary<string, object>
@@ -1253,7 +876,7 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_DefaultsToDevEnvironmentTag()
         {
-            // Arrange
+            // Arrange - need a fresh stack to call app.Synth()
             var app = new App();
 
             // Act
@@ -1270,52 +893,26 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_ProcessAudioTaskHasSpecificErrorCatches()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify processAudioTask has catches for Lambda.ServiceException and Lambda.SdkClientException
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
-            Assert.Contains("Lambda.ServiceException", serialized);
-            Assert.Contains("Lambda.SdkClientException", serialized);
+            Assert.Contains("Lambda.ServiceException", _serializedRelaxed);
+            Assert.Contains("Lambda.SdkClientException", _serializedRelaxed);
         }
 
         [Fact]
         public void Stack_ProcessAudioTaskHasRetryPolicy()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify processAudioTask has a Retry configuration
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Find ProcessAudio state and verify it has Retry
-            var stateIdx = serialized.IndexOf("\\\"ProcessAudio\\\":{");
+            var stateIdx = _serializedRelaxed.IndexOf("\\\"ProcessAudio\\\":{");
             Assert.True(stateIdx >= 0, "ProcessAudio state not found in definition");
 
-            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(800, _serializedRelaxed.Length - stateIdx));
             Assert.Contains("Retry", chunk);
             Assert.Contains("Lambda.ServiceException", chunk);
             Assert.Contains("Lambda.SdkClientException", chunk);
@@ -1325,28 +922,15 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_PollyTaskHasRetryPolicy()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify pollyTask (SynthesizeSpeech) has Retry configuration
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Find SynthesizeSpeech state and verify it has Retry
-            var stateIdx = serialized.IndexOf("\\\"SynthesizeSpeech\\\":{");
+            var stateIdx = _serializedRelaxed.IndexOf("\\\"SynthesizeSpeech\\\":{");
             Assert.True(stateIdx >= 0, "SynthesizeSpeech state not found in definition");
 
-            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(800, _serializedRelaxed.Length - stateIdx));
             Assert.Contains("Retry", chunk);
             Assert.Contains("IntervalSeconds", chunk);
             Assert.Contains("MaxAttempts", chunk);
@@ -1356,28 +940,15 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_WriteInitialMetadataHasRetryPolicy()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify writeInitialMetadata has Retry configuration
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Find WriteInitialMetadata state and verify it has Retry
-            var stateIdx = serialized.IndexOf("\\\"WriteInitialMetadata\\\":{");
+            var stateIdx = _serializedRelaxed.IndexOf("\\\"WriteInitialMetadata\\\":{");
             Assert.True(stateIdx >= 0, "WriteInitialMetadata state not found in definition");
 
-            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(800, _serializedRelaxed.Length - stateIdx));
             Assert.Contains("Retry", chunk);
             Assert.Contains("States.ALL", chunk);
         }
@@ -1385,28 +956,15 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_UpdateStatusCompletedHasRetryPolicy()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify updateStatusCompleted has Retry configuration
-            var stateMachines = template.FindResources("AWS::StepFunctions::StateMachine");
+            var stateMachines = _template.FindResources("AWS::StepFunctions::StateMachine");
             Assert.Single(stateMachines);
 
-            var options = new JsonSerializerOptions
-            {
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            };
-            var serialized = JsonSerializer.Serialize(stateMachines.First().Value, options);
-
             // Find UpdateStatusCompleted state and verify it has Retry
-            var stateIdx = serialized.IndexOf("\\\"UpdateStatusCompleted\\\":{");
+            var stateIdx = _serializedRelaxed.IndexOf("\\\"UpdateStatusCompleted\\\":{");
             Assert.True(stateIdx >= 0, "UpdateStatusCompleted state not found in definition");
 
-            var chunk = serialized.Substring(stateIdx, System.Math.Min(800, serialized.Length - stateIdx));
+            var chunk = _serializedRelaxed.Substring(stateIdx, System.Math.Min(800, _serializedRelaxed.Length - stateIdx));
             Assert.Contains("Retry", chunk);
             Assert.Contains("States.ALL", chunk);
         }
@@ -1414,15 +972,8 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_LambdaFunctionHasXRayTracingEnabled()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the Lambda function has TracingConfig Mode Active
-            var functions = template.FindResources("AWS::Lambda::Function");
+            var functions = _template.FindResources("AWS::Lambda::Function");
             var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
 
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
@@ -1436,44 +987,23 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_HasAtLeastTwoCloudWatchAlarms()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify at least 2 CloudWatch Alarms exist
-            var alarms = template.FindResources("AWS::CloudWatch::Alarm");
+            var alarms = _template.FindResources("AWS::CloudWatch::Alarm");
             Assert.True(alarms.Count >= 2, $"Expected at least 2 CloudWatch Alarms, found {alarms.Count}");
         }
 
         [Fact]
         public void Stack_HasCloudWatchDashboard()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify exactly 1 CloudWatch Dashboard exists
-            template.ResourceCountIs("AWS::CloudWatch::Dashboard", 1);
+            _template.ResourceCountIs("AWS::CloudWatch::Dashboard", 1);
         }
 
         [Fact]
         public void Stack_LambdaFunctionHasOutputBucketEnvironmentVariable()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the Lambda function has OUTPUT_BUCKET_NAME environment variable
-            var functions = template.FindResources("AWS::Lambda::Function");
+            var functions = _template.FindResources("AWS::Lambda::Function");
             var processorFunction = functions.First(f => f.Key.Contains("SleepAudioProcessorFunction"));
 
             var properties = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(processorFunction.Value))
@@ -1487,16 +1017,9 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_LambdaExecutionRoleHasS3GetObjectOnInputBucket()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the Lambda execution role's policy contains s3:GetObject
             // scoped to the input bucket ARN (not just any policy in the stack)
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
 
             // Find the policy attached to the Lambda execution role
             var lambdaPolicyEntry = policies.First(p =>
@@ -1518,16 +1041,9 @@ namespace CdkBase.Tests
         [Fact]
         public void Stack_LambdaExecutionRoleHasS3PutObjectOnOutputBucket()
         {
-            // Arrange
-            var app = new App();
-
-            // Act
-            var stack = new CdkBaseStack(app, "TestStack");
-            var template = Template.FromStack(stack);
-
             // Assert - verify the Lambda execution role's policy contains s3:PutObject
             // scoped to the output bucket ARN (not just any policy in the stack)
-            var policies = template.FindResources("AWS::IAM::Policy");
+            var policies = _template.FindResources("AWS::IAM::Policy");
 
             // Find the policy attached to the Lambda execution role
             var lambdaPolicyEntry = policies.First(p =>

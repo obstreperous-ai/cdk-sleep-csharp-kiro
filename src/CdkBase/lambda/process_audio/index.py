@@ -26,9 +26,17 @@ SUPPORTED_EXTENSIONS = (".mp3", ".wav", ".ogg", ".txt")
 MAX_INPUT_FILE_SIZE_BYTES = 100 * 1024 * 1024
 
 
-def _log(level, message, request_id=None, audio_id=None, status=None, error=None, **kwargs):
+def _log(
+    level: str,
+    message: str,
+    request_id: str | None = None,
+    audio_id: str | None = None,
+    status: str | None = None,
+    error: str | None = None,
+    **kwargs,
+) -> None:
     """Emit a structured JSON log entry."""
-    entry = {
+    entry: dict = {
         "message": message,
         "request_id": request_id,
         "audio_id": audio_id,
@@ -45,7 +53,7 @@ def _log(level, message, request_id=None, audio_id=None, status=None, error=None
         logger.info(json.dumps(entry))
 
 
-def _get_file_extension(key):
+def _get_file_extension(key: str) -> str | None:
     """Extract and return the lowercase file extension from an S3 key."""
     lower_key = key.lower()
     for ext in SUPPORTED_EXTENSIONS:
@@ -54,7 +62,7 @@ def _get_file_extension(key):
     return None
 
 
-def _generate_output_key(audio_id, extension):
+def _generate_output_key(audio_id: str, extension: str) -> str:
     """Generate an output key with a clear naming convention.
 
     Format: processed/{audioId_without_ext}_{timestamp}_{uuid}.{ext}
@@ -77,7 +85,7 @@ def _generate_output_key(audio_id, extension):
     return f"processed/{base_name}_{timestamp}_{unique_id}{output_ext}"
 
 
-def _download_input(bucket_name, key):
+def _download_input(bucket_name: str, key: str) -> tuple[bytes, str, int]:
     """Download the input file from S3 and return its content and metadata."""
     response = s3_client.get_object(Bucket=bucket_name, Key=key)
     content = response["Body"].read()
@@ -86,7 +94,7 @@ def _download_input(bucket_name, key):
     return content, content_type, content_length
 
 
-def _process_content(content, extension, audio_id):
+def _process_content(content: bytes, extension: str, audio_id: str) -> tuple[bytes, dict]:
     """Process the input content based on file type.
 
     For text files (.txt): reads text content, prepares it for downstream
@@ -131,7 +139,7 @@ def _process_content(content, extension, audio_id):
     return processed, metadata
 
 
-def _upload_output(output_bucket, output_key, content, content_type):
+def _upload_output(output_bucket: str, output_key: str, content: bytes, content_type: str) -> None:
     """Upload the processed content to the output S3 bucket."""
     s3_client.put_object(
         Bucket=output_bucket,
@@ -141,7 +149,9 @@ def _upload_output(output_bucket, output_key, content, content_type):
     )
 
 
-def _update_dynamodb_status(table, audio_id, output_bucket, output_key, file_size, metadata):
+def _update_dynamodb_status(
+    table, audio_id: str, output_bucket: str, output_key: str, file_size: int, metadata: dict
+) -> None:
     """Update DynamoDB record with output location and processing metadata.
 
     Sets status to PROCESSED to indicate the Lambda has finished uploading
@@ -166,7 +176,7 @@ def _update_dynamodb_status(table, audio_id, output_bucket, output_key, file_siz
     )
 
 
-def handler(event, context):
+def handler(event: dict, context) -> dict:
     """Process audio: download from S3, process, upload to output bucket, update DynamoDB.
 
     Args:

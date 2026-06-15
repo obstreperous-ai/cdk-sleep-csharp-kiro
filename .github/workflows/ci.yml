@@ -32,7 +32,31 @@ jobs:
         run: dotnet build src/CdkBase.sln --no-restore
 
       - name: Test
-        run: dotnet test src/CdkBase.sln --no-build --verbosity normal
+        run: dotnet test src/CdkBase.sln --no-build --verbosity normal --collect:"XPlat Code Coverage"
+
+      - name: Display coverage summary
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "## Code Coverage Report" >> $GITHUB_STEP_SUMMARY
+          FOUND_COVERAGE=false
+          for f in $(find . -name "coverage.cobertura.xml"); do
+            FOUND_COVERAGE=true
+            echo "Coverage file: $f" >> $GITHUB_STEP_SUMMARY
+            LINE_RATE=$(sed -n 's/.*line-rate="\([^"]*\)".*/\1/p' "$f" | head -1)
+            BRANCH_RATE=$(sed -n 's/.*branch-rate="\([^"]*\)".*/\1/p' "$f" | head -1)
+            if [ -n "$LINE_RATE" ]; then
+              LINE_PCT=$(awk "BEGIN { printf \"%.1f\", $LINE_RATE * 100 }")
+              echo "- Line coverage: ${LINE_PCT}%" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$BRANCH_RATE" ]; then
+              BRANCH_PCT=$(awk "BEGIN { printf \"%.1f\", $BRANCH_RATE * 100 }")
+              echo "- Branch coverage: ${BRANCH_PCT}%" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          if [ "$FOUND_COVERAGE" = "false" ]; then
+            echo "- **No coverage files found**" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: CDK Synth
         run: npx cdk synth

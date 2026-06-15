@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-002",
+  "type": "refactor",
+  "description": "Code quality improvements: refactor CdkBaseStack.cs for modularity and readability, optimize CdkBaseStackTest.cs to use shared fixtures like EndToEndValidationTest, add XML doc comments, improve naming, add CI coverage reporting, and add a Reflections section to EXPERIMENT.md",
+  "status": "completed",
+  "steps": [
+    "In src/CdkBase.Tests/CdkBaseStackTest.cs: Add an IClassFixture pattern (similar to EndToEndValidationFixture in EndToEndValidationTest.cs) to share a single synthesized Template across all 70 tests instead of creating a new App/Stack for each test. Create a CdkBaseStackFixture class with Template and serialized state machine JSON. Update CdkBaseStackTest to implement IClassFixture<CdkBaseStackFixture> and use shared template. Keep the Theory tests that need different environments as separate methods that create their own stacks. This reduces test execution time significantly.",
+    "In src/CdkBase/CdkBaseStack.cs: Extract logical sections into private helper methods for readability - e.g. CreateStorageBuckets(), CreateMetadataTable(), CreateStateMachine(), CreateAlarms(), CreateDashboard(). Add XML documentation comments to the class and constructor. Keep it in one file but organize with clear method boundaries and region comments.",
+    "In src/CdkBase/PipelineStack.cs: Add XML documentation comments to the class. Add a comment explaining the placeholder connection ARN more clearly.",
+    "In .github/workflows/ci.yml: Add a step for collecting test coverage using 'dotnet test' with coverlet. Add '--collect:\"XPlat Code Coverage\"' to the test step. Add a step to report the coverage summary to the workflow log using ReportGenerator or a simple coverage summary.",
+    "In docs/EXPERIMENT.md: Add a new '## Reflections' section at the end (before Related Documentation) covering: (1) what worked well about TDD for CDK infrastructure, (2) challenges with JSII and test performance, (3) benefits of the fixture pattern for test efficiency, (4) observations about AI-assisted development for infrastructure code, (5) lessons learned about state machine testing via string serialization, (6) recommendations for future iterations of this experiment.",
+    "In src/CdkBase/lambda/process_audio/index.py: Add type hints to function signatures for better documentation. No functional changes."
+  ],
+  "acceptance_criteria": [
+    "All 129+ C# tests still pass after refactoring (test count may increase slightly if fixtures consolidation changes)",
+    "All 19 Python tests still pass",
+    "CdkBaseStackTest uses shared fixture pattern - only 1 template synthesis for the majority of tests",
+    "CdkBaseStack.cs has clear helper methods with XML doc comments",
+    "CI workflow includes coverage collection step",
+    "EXPERIMENT.md has a Reflections section with substantive content",
+    "dotnet build succeeds with 0 errors/warnings",
+    "cdk synth succeeds for default, dev, and prod environments"
+  ],
+  "verification": [
+    "unset NODE_OPTIONS && dotnet build src/CdkBase.sln",
+    "unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
+    "cd src/CdkBase/lambda/process_audio && python -m pytest test_index.py -v",
+    "unset NODE_OPTIONS && npx cdk synth",
+    "unset NODE_OPTIONS && npx cdk synth -c environment=prod"
+  ],
+  "blocked_reason": null,
+  "findings": "All 129 C# tests pass after refactoring. The shared fixture pattern reduced CdkBaseStackTest from 70 stack syntheses to 1 shared + 7 individual (Theory tests and app.Synth tests). Total test execution time dropped from ~6s. Build produces 0 warnings/0 errors. CDK synth verified for default, dev, and prod. Python tests (19) all pass with type hints added. The GetProcessorFunction helper method uses Node.FindChild to retrieve the Lambda function reference for alarms."
+}

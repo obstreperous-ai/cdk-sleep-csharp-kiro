@@ -1,0 +1,27 @@
+{
+  "project_type": "C# .NET 8 AWS CDK infrastructure-as-code project for a sleep audio processing pipeline",
+  "language": "C# (.NET 8 target, running on .NET 9 with RollForward), Python 3.12 (Lambda)",
+  "build_system": ".NET SDK with dotnet CLI. No Dockerfile. Node.js required for CDK CLI. Uses mise for runtime management.",
+  "test_framework": "xUnit for C# (serial execution via xunit.runner.json), pytest for Python Lambda tests",
+  "build_command": "unset NODE_OPTIONS && dotnet build src/CdkBase.sln",
+  "test_command": "unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal",
+  "verification_instructions": "1. Run 'unset NODE_OPTIONS && dotnet build src/CdkBase.sln' - must succeed. 2. Run 'unset NODE_OPTIONS && dotnet test src/CdkBase.sln --verbosity normal' - all 129+ tests must pass. 3. Run 'cd src/CdkBase/lambda/process_audio && python -m pytest test_index.py -v' - all 19 tests must pass. 4. Run 'unset NODE_OPTIONS && npx cdk synth' - must succeed.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "1. pyenv global 3.12.13. 2. pip install pytest boto3. 3. dotnet restore src/CdkBase.sln. 4. dotnet build src/CdkBase.sln. Tests require unset NODE_OPTIONS before running.",
+  "environment_constraints": "COMMON_DEPENDENCIES network mode - NuGet and PyPI accessible. .NET 9 installed via mise (project targets net8.0 with RollForward:Major). Must unset NODE_OPTIONS before dotnet/npx commands. Tests must run serially due to JSII constraints.",
+  "contribution_requirements": "TDD methodology - write failing tests first. All resources traceable to ARCHITECTURE.md. Must pass dotnet test and cdk synth for all environments.",
+  "key_patterns": "CdkBaseStackTest creates a new App/Stack per test (inefficient). EndToEndValidationTest uses IClassFixture for shared synthesis. PipelineStackTest uses [Collection] for sequential execution. State machine assertions use serialized JSON string matching. Lambda tests use unittest.mock patching.",
+  "relevant_files": [
+    "src/CdkBase/CdkBaseStack.cs",
+    "src/CdkBase/PipelineStack.cs",
+    "src/CdkBase/Program.cs",
+    "src/CdkBase.Tests/CdkBaseStackTest.cs",
+    "src/CdkBase.Tests/EndToEndValidationTest.cs",
+    "src/CdkBase.Tests/PipelineStackTest.cs",
+    "src/CdkBase/lambda/process_audio/index.py",
+    "src/CdkBase/lambda/process_audio/test_index.py",
+    ".github/workflows/ci.yml",
+    "docs/EXPERIMENT.md"
+  ],
+  "directory_structure": "Root: cdk.json, README.md, docs/, src/. Under src/: CdkBase.sln, CdkBase/ (main CDK app with Program.cs, CdkBaseStack.cs, PipelineStack.cs, lambda/), CdkBase.Tests/ (xUnit test project with 3 test classes)."
+}
