@@ -4,6 +4,9 @@
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet)
 ![AWS CDK](https://img.shields.io/badge/AWS%20CDK-v2-FF9900?logo=amazonaws)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+<!-- Update test count when tests change -->
+![Tests](https://img.shields.io/badge/Tests-148%20passing-brightgreen?logo=checkmarx)
+[![Coverage](https://img.shields.io/badge/Coverage-Collected%20in%20CI-informational?logo=codecov)](https://github.com/obstreperous-ai/cdk-sleep-csharp-kiro/actions/workflows/ci.yml)
 
 An event-driven serverless pipeline for processing sleep audio recordings, built with AWS CDK in C# (.NET 8). This project is a **TDD Infrastructure-as-Code experiment** demonstrating how to build production-grade cloud infrastructure incrementally through pure issue-driven development with AI-assisted agents.
 
@@ -11,11 +14,26 @@ The system ingests audio files via S3, orchestrates processing through Step Func
 
 ---
 
+## Experiment Matrix
+
+> **This is 1 of 15 repositories** in the [obstreperous-ai](https://github.com/obstreperous-ai) experiment matrix.
+>
+> The matrix spans **5 programming languages** (C#, TypeScript, Python, Go, Java) and **3 AI agents**, producing 15 independent implementations of the same serverless pipeline. Each repo receives identical infrastructure challenges adapted for language idioms, enabling cross-comparison of code quality, TDD discipline, and agent autonomy.
+>
+> **This repo:** C# (.NET 8) + **Kiro**
+>
+> Explore the full matrix at [github.com/obstreperous-ai](https://github.com/obstreperous-ai).
+
+---
+
 ## Table of Contents
 
+- [Experiment Matrix](#experiment-matrix)
 - [Architecture Overview](#architecture-overview)
 - [Experiment Methodology](#experiment-methodology)
+- [Experiment Results & Self-Evaluation](#experiment-results--self-evaluation)
 - [Meta-Prompting and Agent Guidelines](#meta-prompting-and-agent-guidelines)
+- [Test Coverage](#test-coverage)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
 - [Deployment](#deployment)
@@ -85,6 +103,38 @@ flowchart TD
 | **SNS** | Success and failure notification topics (KMS encrypted) |
 | **CloudWatch** | Alarms, dashboard, execution logs (14-day retention), X-Ray tracing |
 
+### Processing Sequence (Happy Path)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant S3Input as S3 Input Bucket
+    participant EB as EventBridge
+    participant SF as Step Functions
+    participant DDB as DynamoDB
+    participant Lambda as Lambda Processor
+    participant S3Out as S3 Output Bucket
+    participant Polly as Amazon Polly
+    participant SNS as SNS Topic
+
+    User->>S3Input: Upload audio file
+    S3Input->>EB: PutObject event
+    EB->>SF: StartExecution
+    SF->>DDB: WriteInitialMetadata (status: PROCESSING)
+    SF->>SF: ValidateInput (check extension)
+    SF->>Lambda: Invoke ProcessAudio
+    Lambda->>S3Input: Download input file
+    Lambda->>Lambda: Process audio content
+    Lambda->>S3Out: Upload processed output
+    Lambda->>DDB: Update metadata (output location)
+    Lambda-->>SF: Return success
+    SF->>Polly: SynthesizeSpeech
+    Polly-->>SF: Audio stream
+    SF->>DDB: UpdateStatus (COMPLETED)
+    SF->>SNS: Publish success notification
+    SNS-->>User: Notification delivered
+```
+
 ---
 
 ## Experiment Methodology
@@ -123,6 +173,65 @@ AI agents implemented features following documented architecture and guidelines:
 3. Step Functions SDK integrations reduce Lambda count and operational complexity
 4. Event-driven patterns naturally separate concerns and enable independent testing
 5. Maintaining architecture documentation alongside code prevents drift
+
+---
+
+## Experiment Results & Self-Evaluation
+
+This project completed its full implementation scope: 12 issues merged with **zero rework** across 16 calendar days, producing 148 automated tests covering 25+ AWS resources. The following scores are self-assessed based on objective criteria documented in [FINAL-REPORT.md](FINAL-REPORT.md).
+
+### Scores
+
+| Category | Score | Notes |
+|----------|-------|-------|
+| **Overall** | **8.5 / 10** | Viable and productive methodology; deferred items are scope boundaries, not quality failures |
+| Code Quality | 8 / 10 | Clean, well-documented, appropriately organized; tuple complexity noted |
+| Test Quality | 8.5 / 10 | Comprehensive TDD patterns; 6:1 test-to-resource ratio |
+| TDD Discipline | 9 / 10 | Strong Red-Green-Refactor adherence; Issue #12 batch addition is only deviation |
+| Documentation | 8.5 / 10 | Architecture doc is a standout artifact; 6 documentation pages |
+| Architecture Fidelity | 9 / 10 | Core pipeline fully implemented; deferred items explicitly marked as future |
+
+### What the Experiment Demonstrated
+
+The project validates that AI-assisted, issue-driven TDD can produce well-structured, well-tested infrastructure with minimal human intervention. Structured issues with explicit acceptance criteria eliminated ambiguity and enabled zero-rework PRs. Architecture-first documentation provided guardrails that kept 12 independent PRs architecturally coherent without manual correction.
+
+For the complete analysis including limitations, technical debt, and cross-language comparison framework, see [FINAL-REPORT.md](FINAL-REPORT.md).
+
+> **Readers are invited to draw their own conclusions.** This is one data point in a 15-repo experiment. Compare implementations across agents and languages at [github.com/obstreperous-ai](https://github.com/obstreperous-ai) to form a fuller picture.
+
+### Issue Timeline
+
+```mermaid
+gantt
+    title Implementation Progress (16 Calendar Days)
+    dateFormat YYYY-MM-DD
+    axisFormat %b %d
+
+    section Bootstrap
+    Bootstrap CDK + TDD + CI          :done, i1, 2026-05-28, 1d
+
+    section Architecture
+    Architecture Design               :done, i2, 2026-06-02, 1d
+
+    section Core Infrastructure
+    S3 Buckets + EventBridge          :done, i3, 2026-06-03, 1d
+    Step Functions + Polly            :done, i4, 2026-06-04, 1d
+    DynamoDB Metadata Table           :done, i5, 2026-06-05, 1d
+    SNS Notifications + Errors        :done, i6, 2026-06-06, 1d
+
+    section Processing
+    Lambda Skeleton + Integration     :done, i7, 2026-06-07, 1d
+    Pipeline Wiring + Validation      :done, i8, 2026-06-08, 1d
+
+    section Hardening
+    Pipeline Testing + Environments   :done, i9, 2026-06-09, 1d
+    Error Handling + Observability    :done, i10, 2026-06-10, 1d
+    Audio Processing + Output         :done, i11, 2026-06-11, 1d
+
+    section Validation
+    E2E Validation + Docs             :done, i12, 2026-06-12, 1d
+    Documentation Enrichment          :done, i13, 2026-06-13, 1d
+```
 
 ---
 
@@ -252,7 +361,7 @@ aws dynamodb get-item \
   --key '{"audioId": {"S": "my-sleep-audio.mp3"}}'
 ```
 
-**Status values:** `PROCESSING` -> `PROCESSED` -> `COMPLETED` (or `FAILED`)
+**Status values:** `PROCESSING` -> `COMPLETED` (or `FAILED`)
 
 ### Viewing Notifications
 
@@ -337,6 +446,16 @@ The project has **148 total tests** across two runtimes: 129 C# infrastructure t
 | **PipelineStackTest** | 3 | CI/CD pipeline configuration |
 | **Python tests** (separate) | 19 | Lambda handler logic (validation, processing, error handling) |
 | **Total** | **148** | 129 C# + 19 Python |
+
+### Test Distribution
+
+```mermaid
+pie title Test Distribution by Category (148 Total)
+    "CdkBaseStackTest (C#)" : 70
+    "EndToEndValidationTest (C#)" : 56
+    "PipelineStackTest (C#)" : 3
+    "Lambda Unit Tests (Python)" : 19
+```
 
 ---
 
